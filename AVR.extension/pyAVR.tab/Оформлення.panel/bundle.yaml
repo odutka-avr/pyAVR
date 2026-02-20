@@ -1,0 +1,5 @@
+title: "Оформлення"
+
+layout:
+  - create_views
+  - rename
