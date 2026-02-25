@@ -70,7 +70,9 @@ for rm in Rooms:
     if RMDepartament == "Житло"or RMDepartament == "Апартаменти" :
         rooms.append(rm)
     else:
+        # get AVR_Площа з Коефіцієнтом
         roomCoefeGuid = Guid("8aa2fc34-6227-4cef-82b0-49155330a2d9")
+        # get AVR_Коефіцієнт Площі parameter
         areaCoefGuid = Guid("e6504ce2-879f-40a3-9d37-794136f91590")
         area = round(rm.Area*0.09290304,roundCount) 
         coef = rm.get_Parameter(areaCoefGuid).Set(1)
@@ -82,10 +84,12 @@ parAptNumber = []
 parAptTip = []
 
 for i in rooms:
-    NumbAprt = Guid("9f9dcb07-f7c2-4b75-b4bb-1a11ebbf712a")    
+    # AVR_Номер Квартири
+    NumbAprt = Guid("9f9dcb07-f7c2-4b75-b4bb-1a11ebbf712a")
     NumbAprtVal = i.get_Parameter(NumbAprt).AsString()
     parAptNumber.append(NumbAprtVal)
 
+    # AVR_Тип Приміщення
     typRom = Guid("13e8c42e-e1d8-4493-9c90-32f5f125700f")    
     typRomVal = i.get_Parameter(typRom).AsInteger()
     parAptTip.append(typRomVal)
@@ -165,13 +169,24 @@ for room in rooms:
 
 
 
-
+# get AVR_Площа з Коефіцієнтом
 roomCoefeGuid = Guid("8aa2fc34-6227-4cef-82b0-49155330a2d9")
-apartAreaGuid = Guid("2a4fea4a-a4d4-4a23-a714-24b21a5487a7")    
-apartLivAreaGuid= Guid("d11c5c53-fd8a-44ff-9add-7529ef9272fd")    
-apartGenAreaGuid= Guid("6581d327-1dd5-4f99-8b07-ac5a0ec798b0")    
-apartCountGuid = Guid("3e2cbe7c-303e-4bfa-9164-14740219f710")    
+
+# get AVR_Площа Квартири
+apartAreaGuid = Guid("2a4fea4a-a4d4-4a23-a714-24b21a5487a7") 
+
+# get AVR_Площа квартири житлова
+apartLivAreaGuid= Guid("d11c5c53-fd8a-44ff-9add-7529ef9272fd")
+
+# get AVR_Площа квартири загальна
+apartGenAreaGuid= Guid("6581d327-1dd5-4f99-8b07-ac5a0ec798b0")
+
+# get AVR_Кількість кімнат
+apartCountGuid = Guid("3e2cbe7c-303e-4bfa-9164-14740219f710")
+
+# get AVR_Коефіцієнт Площі
 areaCoefGuid= Guid("e6504ce2-879f-40a3-9d37-794136f91590")
+
 
 for list in outRooms:
     r = list[0]
@@ -208,12 +223,20 @@ for list in outRooms:
         continue
 
 
+"""
+NEED TO UNDERSTAND WHAT THIS CODE DOES
+
+takes all modeled zones in Площа забудови zona scheme and calculates the sum of those areas
+tries to write it to non existent param
+"""
 cat_list = [
 BuiltInCategory.OST_Areas,
 ]
 typed_list = List[BuiltInCategory](cat_list)
 filter = ElementMulticategoryFilter(typed_list)
 zons = FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter).ToElements()
+
+debug = []
 
 constarctArea = []
 for i in zons:
@@ -222,11 +245,15 @@ for i in zons:
     if zonaShems.Name == "Площа забудови":
         zonesArea = i.get_Parameter(BuiltInParameter.ROOM_AREA).AsDouble()
         constarctArea.append(round(zonesArea,3))
+        debug.append([zonaShems, zonesArea])
+
 ConstrArea = sum(constarctArea)
 try:    
     costrArea = doc.ProjectInformation.get_Parameter(Guid('ffe4845b-4f0f-40a2-b0a2-68d53f552e90')).Set(ConstrArea) #AVR_Площа Забудови
 except:
     s=0
+    # T.Commit()
+    # raise Exception(debug)
 
 
 

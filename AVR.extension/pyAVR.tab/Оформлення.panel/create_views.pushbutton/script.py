@@ -211,7 +211,7 @@ if resolt ==  'OK':
             try:
                 Plan_View_Create.Name = Names[lev1]
             except:
-                Plan_View_Create.Name = Names[lev1] + "_Copy1"
+                Plan_View_Create.Name = str(Names[lev1]) + "_Copy1"
 
             c_viws.append(Plan_View_Create)
         else:
@@ -286,7 +286,6 @@ if resolt ==  'OK':
             continue
 
 
-
     # assuming element is an instance of DB.Element
     #for element in c_viws: 
     #    print(output.linkify(element.Id, element.Name))
@@ -309,7 +308,7 @@ if resolt ==  'OK':
         elif "AVR_ОсновнийНапис_Форма3" == name:
                 name = title.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
                 Sheet_dct.setdefault(name,title)    
-
+    
     ######################## ____CREATE SHEETS VIEWS_____#######################
 
     sheetlist = []
@@ -391,5 +390,4 @@ if resolt ==  'OK':
 
         except:
             viewsplaced.append('FAIL')
-
     T.Commit()

@@ -34,8 +34,9 @@ from RevitServices.Transactions import TransactionManager
 #doc = DocumentManager.Instance.CurrentDBDocument
 doc = __revit__.ActiveUIDocument.Document
 
-
+# AVR_Призначення виду
 param1 = Guid('91549a35-74a8-4909-a7cd-09badc3d90db')
+# commented out, not used in the code
 param2 = Guid('c935b866-e921-4356-952b-4f573a82f7a8')
 
 
@@ -52,9 +53,9 @@ T = Transaction(doc, "Rename vews")
 T.Start()
 
 for i in views:
-    try:
+	try:
 		param1 = i.get_Parameter(Guid('91549a35-74a8-4909-a7cd-09badc3d90db')).AsString().Split("_")[0]
-		p06 = i.get_Parameter(Guid('2d6e37cc-d8ba-4755-837e-ee9740adbbf0')).AsString()
+		p06 = i.get_Parameter(Guid('2d6e37cc-d8ba-4755-837e-ee9740adbbf0')).AsString() # get AVR_Стадія проектування
 
 		param = i.get_Parameter(BuiltInParameter.VIEW_TEMPLATE_FOR_SCHEDULE).AsValueString()
 		
@@ -87,7 +88,7 @@ for i in views:
 			param2 = param2 + force_to_unicode("_Coord")
 		"""
 		i.Name = p01 + "_" + p02 + "_" + p03 + p04 + p06 + "_" + p05
-    except:
+	except:
 		s=0		
 		"""
 
