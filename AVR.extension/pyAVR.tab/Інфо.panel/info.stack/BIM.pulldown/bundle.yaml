@@ -1,0 +1,11 @@
+title: "BIM"
+
+layout:
+  - BIM_home
+  - BIM_general_info
+  - BIM_best_practices
+  - BIM_families
+  - BIM_scripts
+
+tooltip: >-
+  Корисні посилання
