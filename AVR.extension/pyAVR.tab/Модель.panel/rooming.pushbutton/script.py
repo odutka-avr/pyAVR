@@ -16,260 +16,65 @@ __author__ = "Mashchenko"
 __title__ = "Квартирографія"
 
 import clr
-from pyrevit import forms
-from pyrevit import script
-from pyrevit import revit
-
-from System import Guid
-
-
 clr.AddReference("RevitAPI")
-from Autodesk.Revit.DB import *
-from Autodesk.Revit.DB.Structure import *
 
-clr.AddReference("RevitAPIUI")
-from Autodesk.Revit.UI import *
-from Autodesk.Revit import UI
-clr.AddReference("System")
-from System.Collections.Generic import List
+from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, BuiltInParameter
+from pyrevit import revit, script, forms
 
-clr.AddReference("RevitNodes")
-import Revit
-clr.ImportExtensions(Revit.GeometryConversion)
-clr.ImportExtensions(Revit.Elements)
+# ======== custom imports ===========
+from design_option_parser import GetDesignOptions
+from rooms import Room_wrapper, Appartment
 
-clr.AddReference("RevitServices")
-import RevitServices
-from RevitServices.Persistence import DocumentManager
-from RevitServices.Transactions import TransactionManager
+# ======== ======== ===========
 
-#from Autodesk.Revit import DB
-#doc = DocumentManager.Instance.CurrentDBDocument
-doc = __revit__.ActiveUIDocument.Document
-#uidoc = DocumentManager.Instance.CurrentUIApplication.ActiveUIDocument
+DOC = revit.doc
+
+# list of DO_set_wrapper instances
+do_data = GetDesignOptions(DOC).get_fortmatted_do_data()
 
 
-roundCount = 3
+# get DO the script must use to parse rooms
+user_do_input = forms.ask_for_one_item(
+    do_data.keys(),
+    prompt="Select DO",
+    title="Design Options"
+)
 
-cat_list = [
-BuiltInCategory.OST_Rooms,
-]
+if user_do_input:
+    print(user_do_input)
+    print(do_data[user_do_input])
+else:
+    print(user_do_input)
 
-typed_list = List[BuiltInCategory](cat_list)
-filter = ElementMulticategoryFilter(typed_list)
-Rooms = FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter).ToElements()
+"""
+parse rooms from user-specified DO
+get available room types, for user to set coeficients in the dialog
+"""
+rooms = FilteredElementCollector(DOC).OfCategory(BuiltInCategory.OST_Rooms)
+rooms_data = list()
+available_room_types = set()
 
-
-T = Transaction(doc, "Calculation rooms area")
-T.Start()
-
-
-rooms = []
-for rm in Rooms:
-    RMDepartament = rm.get_Parameter(BuiltInParameter.ROOM_DEPARTMENT).AsString()
-    if RMDepartament == "Житло"or RMDepartament == "Апартаменти" :
-        rooms.append(rm)
-    else:
-        # get AVR_Площа з Коефіцієнтом
-        roomCoefeGuid = Guid("8aa2fc34-6227-4cef-82b0-49155330a2d9")
-        # get AVR_Коефіцієнт Площі parameter
-        areaCoefGuid = Guid("e6504ce2-879f-40a3-9d37-794136f91590")
-        area = round(rm.Area*0.09290304,roundCount) 
-        coef = rm.get_Parameter(areaCoefGuid).Set(1)
-        area = rm.get_Parameter(roomCoefeGuid).Set(area/0.09290304)
-
-
-
-parAptNumber = []
-parAptTip = []
-
-for i in rooms:
-    # AVR_Номер Квартири
-    NumbAprt = Guid("9f9dcb07-f7c2-4b75-b4bb-1a11ebbf712a")
-    NumbAprtVal = i.get_Parameter(NumbAprt).AsString()
-    parAptNumber.append(NumbAprtVal)
-
-    # AVR_Тип Приміщення
-    typRom = Guid("13e8c42e-e1d8-4493-9c90-32f5f125700f")    
-    typRomVal = i.get_Parameter(typRom).AsInteger()
-    parAptTip.append(typRomVal)
-
-apartNumbers = [] 
-aparts = [] 
-roomsAreaCoeff = []
-roomsAreaMultipliedByCoeff = []
-roomsArea = []
-
-
-outRooms=[] 
-
-i=0
-for room in rooms: 
-    uroom = room
-    aptNum = parAptNumber[i]
-    area = round(uroom.Area*0.09290304,roundCount) 
-    karea = area #Area multiplied by coefficient
-    if area: 
-        contains = apartNumbers.IndexOf(aptNum) 
-        koeff = 1
-        if parAptTip[i]==5:
-            koeff = 1
-        elif parAptTip[i]==3:
-            koeff = 0.5
-        elif parAptTip[i]==4:
-            koeff = 0.3
-        elif parAptTip[i]==5:
-            koeff = 1        
-        if contains>-1:
-            if parAptTip[i]==1:
-                aparts[contains][0]+=1 
-                aparts[contains][2]+=area 
-                aparts[contains][3]+=area
-            elif parAptTip[i]==2:
-                aparts[contains][3]+=area
-            karea = round(koeff *area,roundCount)
-            aparts[contains][1]+=karea 
-        else:
-            apartNumbers.append(aptNum)
-            aptRoomsCount = 0
-            uarea=0
-            apartarea = 0
-            if parAptTip[i]==1:
-                aptRoomsCount = 1 
-                uarea = area
-                apartarea = area
-            elif parAptTip[i]==2:
-                apartarea = area
-            karea = round(koeff *area,roundCount)
-            aparts.append([aptRoomsCount,karea,uarea,apartarea]) 
-    roomsAreaCoeff.append(koeff);
-    roomsAreaMultipliedByCoeff.append(karea)
-    roomsArea.append(area)
-    i=i+1
-
-
-
-i=0
 for room in rooms:
-    uroom = room
-    aptNum = parAptNumber[i]
-    aptPos = apartNumbers.IndexOf(aptNum) 
-    indx = rooms.IndexOf(room)
-    if aptPos>-1 and uroom.Area:
-        apt = aparts[aptPos] 
-        outRooms.append([room, aptNum + "_" + str(parAptTip[i]),
-        apt[0],
-        apt[1],
-        apt[2],
-        apt[3],
-        roomsAreaCoeff[indx],
-        roomsAreaMultipliedByCoeff[indx],
-        roomsArea[indx]])
-    i=i+1
+    # if rooms modeled in Main model - their DO is set to None
+    room_do = room.DesignOption
+    if room_do:
+        room_do = room_do.Name
+    else:
+        room_do = "Main model"
+    
+    if room_do == user_do_input:
+        wr_room = Room_wrapper(room, DOC)
+        rooms_data.append(wr_room)
+
+        print(wr_room.perimeter)
+
+
+print(rooms_data)
 
 
 
-# get AVR_Площа з Коефіцієнтом
-roomCoefeGuid = Guid("8aa2fc34-6227-4cef-82b0-49155330a2d9")
 
-# get AVR_Площа Квартири
-apartAreaGuid = Guid("2a4fea4a-a4d4-4a23-a714-24b21a5487a7") 
+# for debugging
+output = script.get_output()
+output.set_height(600)
 
-# get AVR_Площа квартири житлова
-apartLivAreaGuid= Guid("d11c5c53-fd8a-44ff-9add-7529ef9272fd")
-
-# get AVR_Площа квартири загальна
-apartGenAreaGuid= Guid("6581d327-1dd5-4f99-8b07-ac5a0ec798b0")
-
-# get AVR_Кількість кімнат
-apartCountGuid = Guid("3e2cbe7c-303e-4bfa-9164-14740219f710")
-
-# get AVR_Коефіцієнт Площі
-areaCoefGuid= Guid("e6504ce2-879f-40a3-9d37-794136f91590")
-
-
-for list in outRooms:
-    r = list[0]
-    index = list[1]
-    count = list[2]
-    areaGenAp = list[3]
-    areaLivAp = list[4]
-    areaAp = list[5]
-    coef = list[6]
-    areaCoef = list[7]
-    try:
-        erw = r.get_Parameter(areaCoefGuid).Set(coef)
-    except:
-        continue
-    try:
-        ghh = r.get_Parameter(apartLivAreaGuid).Set(areaLivAp/0.09290304) ######
-    except:
-        ghh = r.get_Parameter(apartLivAreaGuid).Set(0) ######
-    try:        
-        qw = r.get_Parameter(apartCountGuid).Set(int(count))
-    except:
-        continue
-    try:        
-        ew = r.get_Parameter(apartGenAreaGuid).Set(areaGenAp/0.09290304)######
-    except:
-        continue
-    try:        
-        gg = r.get_Parameter(apartAreaGuid).Set(areaAp/0.09290304)#areaAp/0.09290304) ##########
-    except:
-        gg = r.get_Parameter(apartAreaGuid).Set(0)#areaAp/0.09290304) ##########
-    try:        
-        asdds = r.get_Parameter(roomCoefeGuid).Set(areaCoef/0.09290304)
-    except:
-        continue
-
-
-"""
-NEED TO UNDERSTAND WHAT THIS CODE DOES
-
-takes all modeled zones in Площа забудови zona scheme and calculates the sum of those areas
-tries to write it to non existent param
-"""
-cat_list = [
-BuiltInCategory.OST_Areas,
-]
-typed_list = List[BuiltInCategory](cat_list)
-filter = ElementMulticategoryFilter(typed_list)
-zons = FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter).ToElements()
-
-debug = []
-
-constarctArea = []
-for i in zons:
-    zonaShemsId = i.get_Parameter(BuiltInParameter.AREA_SCHEME_ID).AsElementId()
-    zonaShems = doc.GetElement(zonaShemsId)
-    if zonaShems.Name == "Площа забудови":
-        zonesArea = i.get_Parameter(BuiltInParameter.ROOM_AREA).AsDouble()
-        constarctArea.append(round(zonesArea,3))
-        debug.append([zonaShems, zonesArea])
-
-ConstrArea = sum(constarctArea)
-try:    
-    costrArea = doc.ProjectInformation.get_Parameter(Guid('ffe4845b-4f0f-40a2-b0a2-68d53f552e90')).Set(ConstrArea) #AVR_Площа Забудови
-except:
-    s=0
-    # T.Commit()
-    # raise Exception(debug)
-
-
-
-rooms = []
-for rm in Rooms:
-    RMDepartament = rm.get_Parameter(BuiltInParameter.ROOM_DEPARTMENT).AsString()
-    if RMDepartament == "Комерція" or RMDepartament == "Офіси":
-        rooms.append(rm)
-
-
-
-parComercNumber = []
-for i in rooms:
-    NumbAprt = Guid("9f9dcb07-f7c2-4b75-b4bb-1a11ebbf712a")    
-    NumbAprtVal = i.get_Parameter(NumbAprt).AsString()
-    parComercNumber.append(NumbAprtVal)
-
-
-T.Commit()
