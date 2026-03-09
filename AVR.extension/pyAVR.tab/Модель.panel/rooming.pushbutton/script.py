@@ -1,275 +1,252 @@
-# coding: utf8
+# -*- coding: utf-8 -*-
 #  pylint: disable=import-error,invalid-name,attribute-defined-outside-init,broad-except
 ##################################################
-## Python script in Dynamo
-##################################################
-## Author: Vladyslav Mashchenko
-## Copyright: Copyright 2021, AVR 
-## Credits: [Vladyslav Mashchenko]
-## Version: 2.0.0
-## Email: vladyslav.mashchenko@outlook.com
+## Author: Ostap Dutka
+## Copyright: Copyright 2026, AVR 
+## Credits: [Ostap Dutka]
+## Version: 1.0.0
+## Email: o.dutka@avr-dev.com | ostap.dutka.official@gmail.com
 ##################################################
 
 
 __doc__ = "Calculate Area"
-__author__ = "Mashchenko"
+__author__ = "Ostap Dutka"
 __title__ = "Квартирографія"
 
+# ====== IMPORTS =========================================================
+import os
+from pathlib import Path
+
 import clr
-from pyrevit import forms
-from pyrevit import script
-from pyrevit import revit
-
-from System import Guid
-
-
 clr.AddReference("RevitAPI")
-from Autodesk.Revit.DB import *
-from Autodesk.Revit.DB.Structure import *
 
-clr.AddReference("RevitAPIUI")
-from Autodesk.Revit.UI import *
-from Autodesk.Revit import UI
-clr.AddReference("System")
-from System.Collections.Generic import List
+from Autodesk.Revit.DB import Transaction, ModelPathUtils
+from pyrevit import revit, script
 
-clr.AddReference("RevitNodes")
-import Revit
-clr.ImportExtensions(Revit.GeometryConversion)
-clr.ImportExtensions(Revit.Elements)
-
-clr.AddReference("RevitServices")
-import RevitServices
-from RevitServices.Persistence import DocumentManager
-from RevitServices.Transactions import TransactionManager
-
-#from Autodesk.Revit import DB
-#doc = DocumentManager.Instance.CurrentDBDocument
-doc = __revit__.ActiveUIDocument.Document
-#uidoc = DocumentManager.Instance.CurrentUIApplication.ActiveUIDocument
+# local custom imports
+from design_option_parser import GetDesignOptions
+from room_data_form import RoomDataForm
+from room_parser import Room_parser
+from shared_parameters import Shared_parameters
+from cache import RoomingCacheManager
+# ========================================================================
 
 
-roundCount = 3
-
-cat_list = [
-BuiltInCategory.OST_Rooms,
-]
-
-typed_list = List[BuiltInCategory](cat_list)
-filter = ElementMulticategoryFilter(typed_list)
-Rooms = FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter).ToElements()
+# ================= FOR DEBUGGING =================
+output = script.get_output()
+output.set_height(600)
+logger = script.get_logger()
+logger.debug("To run in debug mode - CTRL + Click on the button")
 
 
-T = Transaction(doc, "Calculation rooms area")
-T.Start()
+# ================= HELPER FUNCTIONS =================
 
+def get_model_path(doc):
+    """
+    Resolves the model file path, filename, and cache write permission
+    based on the document's worksharing and save state.
 
-rooms = []
-for rm in Rooms:
-    RMDepartament = rm.get_Parameter(BuiltInParameter.ROOM_DEPARTMENT).AsString()
-    if RMDepartament == "Житло"or RMDepartament == "Апартаменти" :
-        rooms.append(rm)
-    else:
-        # get AVR_Площа з Коефіцієнтом
-        roomCoefeGuid = Guid("8aa2fc34-6227-4cef-82b0-49155330a2d9")
-        # get AVR_Коефіцієнт Площі parameter
-        areaCoefGuid = Guid("e6504ce2-879f-40a3-9d37-794136f91590")
-        area = round(rm.Area*0.09290304,roundCount) 
-        coef = rm.get_Parameter(areaCoefGuid).Set(1)
-        area = rm.get_Parameter(roomCoefeGuid).Set(area/0.09290304)
+    Handles three scenarios:
 
+    Workshared — local copy (saved, has absolute central path):
+        Returns the central model's absolute path and filename.
+        Cache write is enabled.
 
+    Workshared — detached (not saved, no valid central path):
+        Falls back to current working directory for cache path resolution.
+        Attempts to get the original central filename by stripping the
+        '_detached' suffix from doc.PathName — used to read existing cache
+        from a previous run, but cache write is disabled to avoid polluting
+        the cache with detached-session data.
 
-parAptNumber = []
-parAptTip = []
+    Non-workshared — local file:
+        Uses doc.PathName directly.
+        Cache write is enabled only if the file is saved (absolute path)
+        AND is not located inside a '01_WIP' folder structure, which would
+        indicate a detached copy of a workshared project saved locally.
 
-for i in rooms:
-    # AVR_Номер Квартири
-    NumbAprt = Guid("9f9dcb07-f7c2-4b75-b4bb-1a11ebbf712a")
-    NumbAprtVal = i.get_Parameter(NumbAprt).AsString()
-    parAptNumber.append(NumbAprtVal)
+    Args:
+        doc: Revit DBDocument.
 
-    # AVR_Тип Приміщення
-    typRom = Guid("13e8c42e-e1d8-4493-9c90-32f5f125700f")    
-    typRomVal = i.get_Parameter(typRom).AsInteger()
-    parAptTip.append(typRomVal)
+    Returns:
+        tuple:
+            current_doc_path  (str):  Absolute path used for cache directory
+                                    resolution.
+            model_name        (str):  Filename including extension, used as
+                                    top-level cache key. Empty string if
+                                    the file has never been saved.
+            enable_cache_write (bool): Whether the script is permitted to
+                                    write new data to the cache file.
+        """
+    enable_cache_write = False
 
-apartNumbers = [] 
-aparts = [] 
-roomsAreaCoeff = []
-roomsAreaMultipliedByCoeff = []
-roomsArea = []
+    # get path do DOC's filepath
+    if doc.IsWorkshared:
+        central_model_path = doc.GetWorksharingCentralModelPath()
 
+        # if its local copy -> returns absolute path to central model
+        # if not (detached) -> empty string or just a filename
+        current_doc_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(central_model_path)
 
-outRooms=[] 
-
-i=0
-for room in rooms: 
-    uroom = room
-    aptNum = parAptNumber[i]
-    area = round(uroom.Area*0.09290304,roundCount) 
-    karea = area #Area multiplied by coefficient
-    if area: 
-        contains = apartNumbers.IndexOf(aptNum) 
-        koeff = 1
-        if parAptTip[i]==5:
-            koeff = 1
-        elif parAptTip[i]==3:
-            koeff = 0.5
-        elif parAptTip[i]==4:
-            koeff = 0.3
-        elif parAptTip[i]==5:
-            koeff = 1        
-        if contains>-1:
-            if parAptTip[i]==1:
-                aparts[contains][0]+=1 
-                aparts[contains][2]+=area 
-                aparts[contains][3]+=area
-            elif parAptTip[i]==2:
-                aparts[contains][3]+=area
-            karea = round(koeff *area,roundCount)
-            aparts[contains][1]+=karea 
+        # if file is local copy
+        if os.path.isabs(current_doc_path):
+            model_name = current_doc_path.split("\\")[-1]
+            enable_cache_write = True
+        
+        # if file is detached with worksets, not saved
         else:
-            apartNumbers.append(aptNum)
-            aptRoomsCount = 0
-            uarea=0
-            apartarea = 0
-            if parAptTip[i]==1:
-                aptRoomsCount = 1 
-                uarea = area
-                apartarea = area
-            elif parAptTip[i]==2:
-                apartarea = area
-            karea = round(koeff *area,roundCount)
-            aparts.append([aptRoomsCount,karea,uarea,apartarea]) 
-    roomsAreaCoeff.append(koeff);
-    roomsAreaMultipliedByCoeff.append(karea)
-    roomsArea.append(area)
-    i=i+1
+            current_doc_path = str(Path.cwd())
+            
+            # get possible central model name to read cache
+            # disable cache data write
+            model_name = doc.PathName.replace("_detached", "")
+            enable_cache_write = False
+
+    # if not workshared
+    else:
+        current_doc_path = DOC.PathName
+        model_name = ""
+
+        # if file is saved - DOC.PathName path is absolute - enable local caching
+        # if file is not saved - caching is not available
+        if os.path.isabs(current_doc_path):
+            model_name = current_doc_path.split("\\")[-1]
+
+            # if detached non-workshared model saved in "./01_WIP/.../." -> do not allow cache write
+            enable_cache_write = not bool("01_WIP" in current_doc_path)
+    
+    return current_doc_path, model_name, enable_cache_write
 
 
 
-i=0
+# ############################ START ############################
+
+# get current document
+DOC = revit.doc
+
+
+# get path do DOC's filepath
+model_path, model_name, write_cache = get_model_path(DOC)
+logger.debug("Model path: [{}];\nModel name: [{}],\nCan write to cache: [{}]".format(model_path, model_name, write_cache))
+
+# setup cache folder or access already exisitng one, load cache data
+rooming_cache = RoomingCacheManager(model_path, write_cache, model_name)
+
+
+# parse DO data
+do_data = GetDesignOptions(DOC).get_fortmatted_do_data()
+
+
+# initiate rooms parser
+room_parser = Room_parser(DOC)
+
+
+# initiate Form instance and open Form
+form = RoomDataForm("./Form.xaml", DOC, do_data, room_parser, rooming_cache)
+form.ShowDialog()
+
+
+# get user input from the form
+usr_round_by = form.round_by
+usr_do = form.design_option
+usr_type_coefs = form.type_coefficients
+usr_building_section_fn_lr_width = form.building_section_finish_lr_width
+usr_global_fn_lr_width = form.global_finish_lr_width
+usr_omitted_categories = form.omitted_categories
+
+logger.debug("usr_round_by: [{}],\n" \
+            "usr_do: [{}],\n" \
+            "usr_type_coefs: [{}],\n" \
+            "usr_building_section_fn_lr_width: [{}],\n" \
+            "usr_global_fn_lr_width: [{}],\n" \
+            "usr_omitted_categories: [{}]\n".format(usr_round_by,
+                                                usr_do,
+                                                usr_type_coefs,
+                                                usr_building_section_fn_lr_width,
+                                                usr_global_fn_lr_width,
+                                                usr_omitted_categories))
+
+
+# if user closes form without choosing DO, exit script
+if not usr_do:
+    script.exit()
+
+
+# get parsed rooms and apartments data
+rooms = room_parser.room_data
+aparts = room_parser.apartment_data
+
+
+# set all Room_wraper and Apartment instances with user-provided inputs
+for room_wr in rooms:
+    # set room coef
+    room_wr.set_coef(usr_type_coefs[room_wr.room_type])
+
+    # set finish layer widths
+    if room_wr.room_category in usr_omitted_categories:
+        room_wr.set_finish_layer_width(0)
+    else:
+        if usr_building_section_fn_lr_width:
+            # get section lr width
+            # if NOT ALL buildings have section param set -> fallback width val = 0.0
+            b_lr_width = usr_building_section_fn_lr_width.get(room_wr.building_section_number, 0.0)
+            room_wr.set_finish_layer_width(b_lr_width)
+        else:
+            room_wr.set_finish_layer_width(usr_global_fn_lr_width)
+    
+    # calculate areas for the room
+    room_wr.calculate_area()
+
+
+# calculate apartments' areas after all room areas are set
+for apt in aparts.values():
+    apt.calculate_areas()
+
+
+# write values into rooms' params
+t = Transaction(DOC, "Rooming script: Setting parameters")
+t.Start()
+
 for room in rooms:
-    uroom = room
-    aptNum = parAptNumber[i]
-    aptPos = apartNumbers.IndexOf(aptNum) 
-    indx = rooms.IndexOf(room)
-    if aptPos>-1 and uroom.Area:
-        apt = aparts[aptPos] 
-        outRooms.append([room, aptNum + "_" + str(parAptTip[i]),
-        apt[0],
-        apt[1],
-        apt[2],
-        apt[3],
-        roomsAreaCoeff[indx],
-        roomsAreaMultipliedByCoeff[indx],
-        roomsArea[indx]])
-    i=i+1
+    # set apartment number
+    apt_number = room.apartment.number
+    room.room_el.get_Parameter(Shared_parameters.APARTMENT_NUMBER).Set(apt_number)
 
+    # set apartment area total
+    apt_total_area = room.apartment.get_round_area_total_w_coef_fn_lr(usr_round_by)
+    room.room_el.get_Parameter(Shared_parameters.APARTMENT_TOTAL_AREA).Set(apt_total_area)
 
+    # set apartment living area
+    apt_living_area = room.apartment.get_round_area_liv(usr_round_by)
+    room.room_el.get_Parameter(Shared_parameters.APARTMENT_LIVING_AREA).Set(apt_living_area)
 
-# get AVR_Площа з Коефіцієнтом
-roomCoefeGuid = Guid("8aa2fc34-6227-4cef-82b0-49155330a2d9")
+    # set apartment inner area (area of type 1,2 rooms)
+    apt_inner_area = room.apartment.get_round_area_inner_w_coef_fn_lr(usr_round_by)
+    room.room_el.get_Parameter(Shared_parameters.APARTMENT_INNER_AREA).Set(apt_inner_area)
 
-# get AVR_Площа Квартири
-apartAreaGuid = Guid("2a4fea4a-a4d4-4a23-a714-24b21a5487a7") 
+    # set apartment number of type 1 rooms (living)
+    apt_number_type1_rooms = room.apartment.number_of_rooms_type1
+    room.room_el.get_Parameter(Shared_parameters.NUMBER_OF_ROOMS).Set(apt_number_type1_rooms)
 
-# get AVR_Площа квартири житлова
-apartLivAreaGuid= Guid("d11c5c53-fd8a-44ff-9add-7529ef9272fd")
+    # set room area coefficient
+    room_area_coef = room.coef
+    room.room_el.get_Parameter(Shared_parameters.AREA_COEFICIENT).Set(room_area_coef)
 
-# get AVR_Площа квартири загальна
-apartGenAreaGuid= Guid("6581d327-1dd5-4f99-8b07-ac5a0ec798b0")
+    # set room area with coeficient
+    room_area_coef_w_fn_lr = room.get_round_area_w_coef_fn_lr(usr_round_by)
+    room.room_el.get_Parameter(Shared_parameters.ROOM_AREA_WITH_COEFFICIENT).Set(room_area_coef_w_fn_lr)
 
-# get AVR_Кількість кімнат
-apartCountGuid = Guid("3e2cbe7c-303e-4bfa-9164-14740219f710")
+    logger.debug("ROOM_NUM: {},\n" \
+                "ROOM_AREA_TOTAL: {},\n" \
+                "APART_NUM: {},\n" \
+                "APART_TOTAL_AREA: {},\n" \
+                "APART_INNER_AREA: {}, \n" \
+                "APRT_LIVING_AREA: {}".format(room.room_number, 
+                                    room.area_w_coef_finish_layer,
+                                    apt_number, 
+                                    room.apartment.total_area_w_coef_fn_lr,
+                                    room.apartment.inner_area_w_coef_fn_lr, 
+                                    room.apartment.living_area_w_coef_fn_lr))
 
-# get AVR_Коефіцієнт Площі
-areaCoefGuid= Guid("e6504ce2-879f-40a3-9d37-794136f91590")
+t.Commit()
 
-
-for list in outRooms:
-    r = list[0]
-    index = list[1]
-    count = list[2]
-    areaGenAp = list[3]
-    areaLivAp = list[4]
-    areaAp = list[5]
-    coef = list[6]
-    areaCoef = list[7]
-    try:
-        erw = r.get_Parameter(areaCoefGuid).Set(coef)
-    except:
-        continue
-    try:
-        ghh = r.get_Parameter(apartLivAreaGuid).Set(areaLivAp/0.09290304) ######
-    except:
-        ghh = r.get_Parameter(apartLivAreaGuid).Set(0) ######
-    try:        
-        qw = r.get_Parameter(apartCountGuid).Set(int(count))
-    except:
-        continue
-    try:        
-        ew = r.get_Parameter(apartGenAreaGuid).Set(areaGenAp/0.09290304)######
-    except:
-        continue
-    try:        
-        gg = r.get_Parameter(apartAreaGuid).Set(areaAp/0.09290304)#areaAp/0.09290304) ##########
-    except:
-        gg = r.get_Parameter(apartAreaGuid).Set(0)#areaAp/0.09290304) ##########
-    try:        
-        asdds = r.get_Parameter(roomCoefeGuid).Set(areaCoef/0.09290304)
-    except:
-        continue
-
-
-"""
-NEED TO UNDERSTAND WHAT THIS CODE DOES
-
-takes all modeled zones in Площа забудови zona scheme and calculates the sum of those areas
-tries to write it to non existent param
-"""
-cat_list = [
-BuiltInCategory.OST_Areas,
-]
-typed_list = List[BuiltInCategory](cat_list)
-filter = ElementMulticategoryFilter(typed_list)
-zons = FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter).ToElements()
-
-debug = []
-
-constarctArea = []
-for i in zons:
-    zonaShemsId = i.get_Parameter(BuiltInParameter.AREA_SCHEME_ID).AsElementId()
-    zonaShems = doc.GetElement(zonaShemsId)
-    if zonaShems.Name == "Площа забудови":
-        zonesArea = i.get_Parameter(BuiltInParameter.ROOM_AREA).AsDouble()
-        constarctArea.append(round(zonesArea,3))
-        debug.append([zonaShems, zonesArea])
-
-ConstrArea = sum(constarctArea)
-try:    
-    costrArea = doc.ProjectInformation.get_Parameter(Guid('ffe4845b-4f0f-40a2-b0a2-68d53f552e90')).Set(ConstrArea) #AVR_Площа Забудови
-except:
-    s=0
-    # T.Commit()
-    # raise Exception(debug)
-
-
-
-rooms = []
-for rm in Rooms:
-    RMDepartament = rm.get_Parameter(BuiltInParameter.ROOM_DEPARTMENT).AsString()
-    if RMDepartament == "Комерція" or RMDepartament == "Офіси":
-        rooms.append(rm)
-
-
-
-parComercNumber = []
-for i in rooms:
-    NumbAprt = Guid("9f9dcb07-f7c2-4b75-b4bb-1a11ebbf712a")    
-    NumbAprtVal = i.get_Parameter(NumbAprt).AsString()
-    parComercNumber.append(NumbAprtVal)
-
-
-T.Commit()
