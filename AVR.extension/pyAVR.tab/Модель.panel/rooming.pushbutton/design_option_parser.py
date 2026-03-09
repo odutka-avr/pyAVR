@@ -1,16 +1,29 @@
 # -*- coding: utf-8 -*-
 
+# ====== IMPORTS =========================================================
 import clr
 clr.AddReference("RevitAPI")
 
 from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, ElementCategoryFilter
 
+# ========================================================================
+
 
 class DO_set_wrapper:
     """
-    Design option set wrapper, for quick access to do set info
+    Wraps a Revit Design Option Set element for convenient access to its
+    name and dependent Design Option elements.
 
-    :type design_option_set: Autodesk.Revit.DB.Element
+    Can represent either a real Design Option Set from the model, or a
+    virtual "Main model" entry (when main_model_flag=True), which has no
+    corresponding Revit element but is treated as a valid option throughout
+    the script.
+
+    Args:
+        design_option_set (Element): Revit DesignOptionSet element. Can be
+                                     None if main_model_flag is True.
+        main_model_flag   (bool):    If True, creates a virtual Main model
+                                     entry with a single DO_wrapper(None).
     """
     def __init__(self, design_option_set=None, main_model_flag=False):
         self.do_set = design_option_set
@@ -23,9 +36,11 @@ class DO_set_wrapper:
     
     def append_do_el(self, do_el):
         """
-        Add dependent design option to list of all dependent design options that belong to this set
-        
-        :type do_el: DO_wrapper
+        Appends a DO_wrapper to this set's list of dependent design options.
+        Called during model parsing for each DO belonging to this set.
+
+        Args:
+            do_el (DO_wrapper): Wrapped design option to add.
         """
         self.do_elems.append(do_el)
     
@@ -38,15 +53,21 @@ class DO_set_wrapper:
 
 class DO_wrapper:
     """
-    Design option wrapper, for quick access to info
+    Wraps a single Revit Design Option element for convenient access to
+    its name and parent set reference.
 
-    :type design_option_el: Autodesk.Revit.DB.Element
-    :type design_option_set: Autodesk.Revit.DB.Element
+    Can represent either a real Design Option element or the virtual
+    "Main model" option (when design_option_el is None).
+
+    Args:
+        design_option_el  (Element):       Revit DesignOption element, or
+                                           None for Main model.
+        design_option_set (DO_set_wrapper): Parent set this option belongs to.
     """
     def __init__(self, design_option_el, design_option_set):
         self.do_el = design_option_el
         if design_option_el:
-            self.name = design_option_el.Name.replace("<primary>", "").strip()
+            self.name = design_option_el.Name
         else:
             self.name = "Main model"
         self.do_set = design_option_set
@@ -59,6 +80,20 @@ class DO_wrapper:
         
 
 class GetDesignOptions:
+    """
+    Parses all Design Option Sets and their dependent Design Options from
+    the Revit document and exposes them in structured form for use in
+    the input form.
+
+    Always appends a virtual "Main model" entry so rooms modeled outside
+    any Design Option can be targeted consistently.
+
+    After init, design_option_data contains a list of DO_set_wrapper
+    instances, each holding its dependent DO_wrapper instances.
+
+    Args:
+        doc: Revit DBDocument (revit.doc)
+    """
     def __init__(self, doc):
         self.doc = doc
         self.design_option_sets = self._parse_design_option_sets()
@@ -67,18 +102,21 @@ class GetDesignOptions:
     
     def _parse_design_option_sets(self):
         """
-        -> return list of available design option set elements
+        Collects all DesignOptionSet elements from the model.
 
-        :rtype: Autodesk.Revit.DB.FilteredElementCollector
+        Returns:
+            FilteredElementCollector: Iterable of DesignOptionSet elements.
         """
         return FilteredElementCollector(self.doc).OfCategory(BuiltInCategory.OST_DesignOptionSets)
     
     def _get_all_design_options(self):
         """
-        Iterate through available design option sets, get every DO from each set
-        -> return list([DO_set_wrapper] elements) - each DO_set_wrapper element has list of its DOs
+        Iterates through all Design Option Sets, wraps each in a
+        DO_set_wrapper, and populates it with its dependent DO_wrapper
+        instances. Appends a virtual Main model entry at the end.
 
-        :rtype: list
+        Returns:
+            list[DO_set_wrapper]: All sets including Main model.
         """
         design_option_info = list()
         do_filter = ElementCategoryFilter(BuiltInCategory.OST_DesignOptions)
@@ -104,16 +142,27 @@ class GetDesignOptions:
     
     def set_default_template_do_set_name(self, default_set_name):
         """
-        Set default DO set name that is predefined in .rte file.
-        By default = "Приклад моделювання елементів"
+        Overrides the default template DO set name used to identify and
+        exclude the project template's built-in option set.
+        Defaults to "Матеріали шаблону" if not called.
 
-        :type default_set_name: str
+        Args:
+            default_set_name (str): Name of the template DO set to exclude.
+
+        =================================================================
+        #### CURENTLY ALL DESIGN OPTIONS ARE SHOWN WITHOUT EXCEPTIONS
+        - FOR POSSIBLE FUTURE USE
+        =================================================================
         """
         self.defauilt_template_design_option_name = default_set_name
     
     def get_fortmatted_do_data(self):
         """
-        :rtype: dict
+        Flattens all DO sets and their options into a single dict keyed
+        by DO name, for direct use as ComboBox ItemsSource in the form.
+
+        Returns:
+            dict[str, tuple]: { do_name: (DO_set_wrapper, DO_wrapper) }
         """
         do_data_dict = dict()
 
