@@ -1,0 +1,52 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Room Data Setup" Width="460"
+        SizeToContent="Height" MaxHeight="900"
+        WindowStartupLocation="CenterScreen">
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        
+            <StackPanel>
+            
+                <!-- CHOOSE AVAILABLE LINKS -->
+
+                <!-- SET AND CHECK BUILDING AND QUEUE NUMBERS -->
+
+
+
+                <!-- === SETTING DATA FOR ADDITIONAL FIELDS === -->
+
+                <!-- CHECK DATA NAMING AND ADRESS -->
+
+                <!-- SET MAX HIGHT LIMITATION FOR EACH BUILDING -->
+
+                <!-- SET FIRE RATING FOR EACH BUILDING -->
+
+                <!-- SET ENERGY PERFORMANCE CLASS FOR EACH BUILDING -->
+
+                <!-- SET CONSRUCTION DURATION FOR EACH BUILDING -->
+
+
+
+                <!-- === CHOOSE AUXILARY FIELDS === -->
+
+                <!-- TYPE OF CONSTRUCTION -->
+
+                <!-- DURATION OF USAGE -->
+
+                <!-- PROPERTY AREA -->
+
+                <!-- AREA OF МЗК -->
+
+                <!-- NUMBER OF PARKING SAPCES -->
+
+                <!-- TOTAL BUILDING VOLUME -->
+
+
+                <!-- CONFIRM BUTTON -->
+
+            </StackPanel>
+
+        </ScrollViewer>
+
+</Window>

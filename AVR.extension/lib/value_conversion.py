@@ -12,6 +12,12 @@ from Autodesk.Revit.DB import (
 def convert_feet_to_mm(feet_val):
     return UnitUtils.ConvertFromInternalUnits(feet_val, UnitTypeId.Millimeters)
 
+def convert_feet_to_m(feet_val):
+    return UnitUtils.ConvertFromInternalUnits(feet_val, UnitTypeId.Meters)
+
+def convert_sq_feet_to_hectares(sq_feet):
+    return UnitUtils.ConvertFromInternalUnits(sq_feet, UnitTypeId.Hectares)
+
 def convert_sq_feet_to_sq_m(sq_feet_val):
     return UnitUtils.ConvertFromInternalUnits(sq_feet_val, UnitTypeId.SquareMeters)
 

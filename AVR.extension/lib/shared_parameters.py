@@ -48,3 +48,6 @@ class Shared_parameters:
     # ========================= BUILDING =========================
     # AVR_Номер Секції
     BUILDING_SECTION_NUMEBR = Guid("d23b3bd5-0ce0-4a42-a27a-44d49640bd07")
+
+    # AVR_Номер черги - non-shared param
+    BUILDING_DEV_PHASE_NUMBER = "AVR_Номер черги"
