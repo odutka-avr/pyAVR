@@ -9,7 +9,6 @@ from Autodesk.Revit.DB import (FilteredElementCollector,
                                BuiltInParameter, 
                                Level, 
                                DesignOption,
-                               RevitLinkInstance,
                                PropertyLine)
 
 # local custom imports
@@ -17,23 +16,43 @@ from wrappers import (LevelWrapper,
                       AreaWrapper,
                       RoomWrapper,
                       ApartmentWrapper,
-                      BuildingWrapper,
-                      DevelopmentPhaseWrapper,
-                      ProjectWrapper)
+                      BuildingWrapper)
 
 from shared_parameters import Shared_parameters
-from value_conversion import convert_sq_feet_to_sq_m
-from enums import RoomCategory
+from enums import RoomCategories
 
 # ========================================================================
 
 
 class DesignOptionWrapper:
+    """
+    Wraps a Revit DesignOption element or represents the Main Model.
+ 
+    The Main Model is not a real Revit element — it is created manually
+    with do_el=None and returns the sentinel name "Main model".
+    This lets the UI treat the Main Model and real design options
+    uniformly in the same dropdown list.
+ 
+    Attributes:
+        do_el: The raw Autodesk.Revit.DB.DesignOption element,
+               or None for the Main Model sentinel.
+    """
     def __init__(self, do_el):
+        """
+        Args:
+            do_el: Autodesk.Revit.DB.DesignOption element, or None
+                   to create the Main Model sentinel.
+        """
         self.do_el = do_el
     
     @property
     def name(self):
+        """
+        Design option name string.
+ 
+        Returns:
+            str: DesignOption.Name, or "Main model" for the sentinel.
+        """
         if self.do_el:
             return self.do_el.Name
         return "Main model"
@@ -46,43 +65,47 @@ class DesignOptionWrapper:
 
 
 # ========================================================================
-
-
-DEPARTMENT_ROUTING = {
-    "МЗК":                              "common_rooms",
-    "Місце загального користування":    "common_rooms",
-    "Технічне приміщення":              "common_rooms",
-    "Технічні приміщення":              "common_rooms",
-    "Трансформаторна підстанція":       "common_rooms",
-    "Офіс":                             "office_rooms",
-    "ЗДО":                              "educational_rooms",
-    "Комерція":                         "commerce_rooms",
-    "Укриття":                          "shelter_rooms",
-    "Проїзд":                           "driveway_rooms",
-    "Машино-місце":                     "parking_space_rooms",
-    "Проїзд/укриття":                   "",
-    "Машино-місце/укриття":             "",
-}
-
-RESIDENTIAL_CATEGORY = "Житло"
-
 # ========================================================================
 
 
 
 class DocumentParser:
     """
-    Parses a single Revit document (current or linked) into a BuildingWrapper.
+    Parses a single Revit document into a populated BuildingWrapper.
  
-    Usage:
-        parser = DocumentParser(doc)
+    Handles level ordering, room routing by category and department,
+    apartment grouping, area plan collection, and property line parsing.
+ 
+    Must be configured with a design option via set_work_design_option()
+    before calling parse(). Rooms are filtered to include only those
+    belonging to the selected design option (or the Main Model).
+ 
+    Typical usage::
+ 
+        parser = DocumentParser(doc, project)
+        dos = parser.parse_design_options()
+        parser.set_work_design_option(chosen_do_wrapper)
         building = parser.parse()
+ 
+    Attributes:
+        project (ProjectWrapper):  Project the parsed building is added to.
+        doc:                       Autodesk.Revit.DB.Document being parsed.
+        model_name (str):          Document title, used as display name.
+        do_to_parse:               DesignOptionWrapper set by the user.
+                                   None until set_work_design_option() called.
+        untracked_rooms (list):    RoomWrappers whose category/department
+                                   did not match any routing rule.
+                                   Useful for debugging missing room data.
+        untracked_cat_depts (list): Parallel list of (category, department)
+                                   tuples for untracked_rooms entries.
     """
  
     def __init__(self, doc, project):
         """
-        doc           — the Document to parse (current or from link.GetLinkDocument())
-        link_instance — the RevitLinkInstance if this is a linked model, else None
+        Args:
+            doc:     Autodesk.Revit.DB.Document to parse.
+            project: ProjectWrapper that the resulting BuildingWrapper
+                     will be registered with.
         """
         self.project       = project
         self.doc           = doc
@@ -99,8 +122,13 @@ class DocumentParser:
  
     def parse(self):
         """
-        Full parse: levels → rooms → areas.
-        Returns a populated BuildingWrapper.
+        Execute the full parse sequence for this document.
+ 
+        Parse order: levels -> rooms -> areas -> property lines.
+        Registers the resulting BuildingWrapper with the ProjectWrapper.
+ 
+        Returns:
+            BuildingWrapper: Fully populated building data container.
         """
         building = BuildingWrapper(self.doc)
         self.project.add_building(building)
@@ -116,8 +144,21 @@ class DocumentParser:
  
     def _parse_levels(self, building):
         """
-        Collect all Level elements, wrap them, add to building.
-        floor_type is left as None — must be set later via the UI dialog.
+        Collect, filter, sort, and link all building-story Level elements.
+ 
+        Only levels with LEVEL_IS_BUILDING_STORY == 1 are included.
+        Levels are sorted by ascending elevation then linked into a
+        singly-linked list via LevelWrapper.next_level so the volume
+        calculation can determine floor-to-floor heights without a
+        separate lookup.
+ 
+        The linking algorithm creates each LevelWrapper exactly once:
+        on the first iteration the wrapper is created fresh; on each
+        subsequent iteration it reuses the wrapper already created as
+        next_level in the previous pass, avoiding duplicate wrapping.
+ 
+        Args:
+            building (BuildingWrapper): Target building to add levels to.
         """
         level_els = (
             FilteredElementCollector(self.doc)
@@ -166,8 +207,16 @@ class DocumentParser:
  
     def _level_map(self, building):
         """
-        Returns dict {Revit ElementId integer → LevelWrapper}
-        for fast lookup when linking rooms/areas to their level.
+        Build an ElementId integer -> LevelWrapper lookup dictionary.
+ 
+        Built once per parse and reused by _parse_rooms and _parse_areas
+        to avoid iterating the level set for every element.
+ 
+        Args:
+            building (BuildingWrapper): Source of level wrappers.
+ 
+        Returns:
+            dict[int, LevelWrapper]: Keys are Revit ElementId integers.
         """
         return {lv.level_el.Id.IntegerValue: lv for lv in building.levels}
  
@@ -175,8 +224,23 @@ class DocumentParser:
     
     def _parse_rooms(self, building):
         """
-        Collect all placed rooms, wrap them, route to apartment or
-        to the appropriate non-residential set on the building.
+        Collect all placed rooms, filter by design option, and route
+        each to its appropriate destination on BuildingWrapper.
+ 
+        Routing logic:
+            1. Skip unplaced rooms (area == 0).
+            2. Skip rooms not in the selected design option.
+            3. Link each room to its LevelWrapper via the level map.
+            4. Add to building.rooms for total_room_area.
+            5. Call RoomCategories.route_categories(category):
+               - RESIDENCE  -> _add_room_to_apartment()
+               - Other known category -> route_department() -> building sub-set
+               - Mixed-usage shelter flag -> also add to mixed_usage_shelter_rooms
+               - Unrecognised -> append to untracked_rooms
+            6. Commit all apartments to the building after all rooms processed.
+ 
+        Args:
+            building (BuildingWrapper): Target building to populate.
         """
         level_map   = self._level_map(building)
         apartments  = {}   # apt_number (str) → ApartmentWrapper
@@ -219,17 +283,32 @@ class DocumentParser:
                 building.add_room(r_wrapper)
 
                 # add to appartment if room belongs to Житлова category
-                if category == RESIDENTIAL_CATEGORY:
+                # if category == RESIDENTIAL_CATEGORY:
+                #     self._add_room_to_apartment(r_wrapper, apartments)
+                # else:
+
+                valid_category = RoomCategories.route_categories(category)
+                
+                if valid_category == RoomCategories.RESIDENCE:
                     self._add_room_to_apartment(r_wrapper, apartments)
-                else:
-                    # dept = r_wrapper.room_department
-                    # target_attr = DEPARTMENT_ROUTING.get(dept)
-                    attr_name = RoomCategory.route(category)
+
+                elif valid_category:
+                    attr_name = valid_category.route_department(department)
+
                     if attr_name:
                         getattr(building, attr_name).add(r_wrapper)
+                        
+                        # check if room is mixed usage shelter room
+                        if r_wrapper.is_mixed_usage_shelter:
+                            building.mixed_usage_shelter_rooms.add(r_wrapper)
+
                     else:
                         self.untracked_rooms.append(r_wrapper)
                         self.untracked_cat_depts.append((category, department))
+                
+                else:
+                    self.untracked_rooms.append(r_wrapper)
+                    self.untracked_cat_depts.append((category, department))
 
         # ── commit apartments to building ──────────────────────────────
         for apt in apartments.values():
@@ -238,8 +317,16 @@ class DocumentParser:
 
     def _add_room_to_apartment(self, room_wrapper, apartments):
         """
-        Read AVR_Номер квартири from the room, find or create the
-        ApartmentWrapper, and add the room to it.
+        Read the apartment number and add the room to its ApartmentWrapper.
+ 
+        Creates a new ApartmentWrapper if this number has not been seen.
+        Rooms with a missing or empty AVR_Номер квартири are silently
+        skipped.
+ 
+        Args:
+            room_wrapper (RoomWrapper):           Residential room to group.
+            apartments (dict[str, ApartmentWrapper]): Working dict keyed
+                by apartment number string. Modified in-place.
         """
         apt_param = room_wrapper.room_el.get_Parameter(
             Shared_parameters.APARTMENT_NUMBER
@@ -263,8 +350,14 @@ class DocumentParser:
  
     def _parse_areas(self, building):
         """
-        Collect all placed Area elements, wrap them, link to level.
-        Only areas with area > 0 are included (unplaced areas ignored).
+        Collect all placed Area elements and link each to its LevelWrapper.
+ 
+        Unplaced areas (area == 0) are skipped. Area scheme name is stored
+        on each AreaWrapper and used later by BuildingWrapper methods to
+        filter areas by scheme (e.g. "Загальна площа будинку").
+ 
+        Args:
+            building (BuildingWrapper): Target building to populate.
         """
         level_map = self._level_map(building)
  
@@ -293,6 +386,15 @@ class DocumentParser:
 
     def _parse_property_lines(self, building):
         """
+        Collect all closed PropertyLine elements from the document.
+ 
+        Open (unclosed) property lines have PROPERTY_AREA == -1 and
+        are excluded. Elements are stored directly on
+        BuildingWrapper.property_outlines and read lazily by the
+        property_area computed property for TEP item 4.
+ 
+        Args:
+            building (BuildingWrapper): Target building to populate.
         """
         pr_outline = (
             FilteredElementCollector(self.doc)
@@ -311,8 +413,14 @@ class DocumentParser:
  
     def parse_design_options(self):
         """
-        Returns list[DesignOptionWrapper] for all design options in this doc.
-        Empty list if the model has no design options.
+        Return all design options in this document plus the Main Model.
+ 
+        The Main Model sentinel is always prepended so it appears first
+        in the UI dropdown and can be pre-selected by default.
+ 
+        Returns:
+            list[DesignOptionWrapper]: Main Model first, then all real
+            design options in collector order.
         """
         do_els = (
             FilteredElementCollector(self.doc)
@@ -333,6 +441,16 @@ class DocumentParser:
     
 
     def set_work_design_option(self, do_wrapper):
+        """
+        Set the design option that rooms are filtered against during parse().
+ 
+        Must be called before parse(). Rooms whose DesignOption.Name
+        does not match do_wrapper.name are skipped entirely.
+ 
+        Args:
+            do_wrapper (DesignOptionWrapper): The user-selected option.
+                Pass the Main Model sentinel to include all non-DO rooms.
+        """
         self.do_to_parse = do_wrapper
  
  

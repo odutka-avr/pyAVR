@@ -42,3 +42,6 @@ def set_sq_meters(sq_m_val):
         param.Set(set_sq_meters(area_m2))
     """
     return UnitUtils.ConvertToInternalUnits(sq_m_val, UnitTypeId.SquareMeters)
+
+def convert_mm_to_feet(mm_val):
+    return UnitUtils.ConvertToInternalUnits(mm_val, UnitTypeId.Millimeters)

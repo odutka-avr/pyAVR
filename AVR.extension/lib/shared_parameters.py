@@ -25,6 +25,10 @@ class Shared_parameters:
     # AVR_Номер Приміщення
     ROOM_NUMBER = Guid("f9c5a3d3-1cbb-4fd0-9a81-2b18886cee6f")
 
+    # AVR_СПП_Укриття
+    # MIXED_USAGE_SHELTER_ROOM = Guid("ea1497c2-beaf-4dd9-a9bd-3a0905c9b647") - test param
+    MIXED_USAGE_SHELTER_ROOM = Guid("75937a99-6cee-48f4-931e-12db7ce0bdd4")
+
 
     # ============================================================
     # ======================== APARTMENT =========================
@@ -51,3 +55,7 @@ class Shared_parameters:
 
     # AVR_Номер черги - non-shared param
     BUILDING_DEV_PHASE_NUMBER = "AVR_Номер черги"
+
+    # ============================================================
+    # ========================= VIEWS =========================
+    VIEW_FUNCTION = Guid("91549a35-74a8-4909-a7cd-09badc3d90db")
