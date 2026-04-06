@@ -2,39 +2,32 @@
 
 # ====== IMPORTS =========================================================
 
-from pyrevit import revit, forms, script
+from pyrevit import revit, script
 
 import clr
 clr.AddReference("RevitAPI")
-from Autodesk.Revit.DB import (FilteredElementCollector, 
-                               BuiltInCategory, 
-                               Level, 
-                               RevitLinkInstance, 
-                               PropertyLine,
-                               BuiltInParameter)
+from Autodesk.Revit.DB import (FilteredElementCollector,
+                               RevitLinkInstance)
 
 # local custom imports
-from wrappers import (LevelWrapper,
-                      RoomWrapper,
-                      ApartmentWrapper,
-                      AreaWrapper,
-                      DevelopmentPhaseWrapper,
-                      ProjectWrapper)
-
-from parsers import DocumentParser
+from wrappers import ProjectWrapper
 from form import Form
+from schedule_writer import ScheduleWriter
 
 # ========================================================================
 
+# configure debugging
 output = script.get_output()
 output.set_height(600)
+logger = script.get_logger()
+logger.debug("To run in debug mode - CTRL + Click on the button")
 
+# get current doc
 DOC = revit.doc
 docs = [DOC]
 
+# get loaded links
 links = list(FilteredElementCollector(DOC).OfClass(RevitLinkInstance))
-
-
 for link in links:
     l_doc = link.GetLinkDocument()
     
@@ -42,13 +35,21 @@ for link in links:
     if l_doc:
         docs.append(l_doc)
 
-#print(docs)
-project = ProjectWrapper()
 
+project = ProjectWrapper()
+# initilize and show the form for user input
 form = Form(docs, project)
 result = form.show()
 
-print(result)
+# if form was successfully filled
+if result:
+    logger.debug("User data obtained, initilizing ScheduleWriter instance...")
+    r_writer = ScheduleWriter(DOC, result)
+    r_writer.write()
+
+# if user closed form before completing fill
+else:
+    logger.debug("User closed the form, not all fields are filled!")
 
 
 """
