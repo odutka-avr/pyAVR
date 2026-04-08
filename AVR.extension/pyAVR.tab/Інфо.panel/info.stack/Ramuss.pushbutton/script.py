@@ -36,3 +36,6 @@ for el in collector:
             else:
                 webbrowser.open(RAMUSS_ROOT_LINK)
                 break
+
+if not collector:
+    webbrowser.open(RAMUSS_ROOT_LINK)
