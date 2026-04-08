@@ -20,7 +20,7 @@ RAMUSS_ROOT_LINK = "http://avrd.ramuss.com/"
 
 
 collector = FilteredElementCollector(DOC).OfCategory(BuiltInCategory.OST_GenericAnnotation).WhereElementIsNotElementType()
-
+opened_ramuss = False
 
 for el in collector:
     if el.Name == TARGET_TYPE_NAME:
@@ -32,10 +32,12 @@ for el in collector:
             # check if link leads to ramuss
             if KEY_WORD in ramuss_contract_link:
                 webbrowser.open(ramuss_contract_link)
+                opened_ramuss = True
                 break
             else:
                 webbrowser.open(RAMUSS_ROOT_LINK)
+                opened_ramuss = True
                 break
 
-if not collector:
+if not opened_ramuss:
     webbrowser.open(RAMUSS_ROOT_LINK)
