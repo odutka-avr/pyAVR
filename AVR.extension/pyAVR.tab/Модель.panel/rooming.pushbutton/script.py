@@ -152,7 +152,7 @@ usr_do = form.design_option
 usr_type_coefs = form.type_coefficients
 usr_building_section_fn_lr_width = form.building_section_finish_lr_width
 usr_global_fn_lr_width = form.global_finish_lr_width
-usr_omitted_categories = form.omitted_categories
+usr_omitted_categories = form.omitted_categories or []
 
 logger.debug("usr_round_by: [{}],\n" \
             "usr_do: [{}],\n" \

@@ -1,0 +1,153 @@
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Apartment Numbering"
+    Width="620"
+    SizeToContent="Height"
+    WindowStartupLocation="CenterScreen"
+    ResizeMode="NoResize"
+    FontFamily="Segoe UI"
+    FontSize="13"
+    Background="#F5F5F5">
+
+    <StackPanel Margin="20">
+
+        <!-- ── TITLE ──────────────────────────────────────────────── -->
+        <TextBlock Text="Apartment Numbering"
+                   FontSize="15"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,14"/>
+
+        <!-- ── BUILDINGS LABEL ────────────────────────────────────── -->
+        <TextBlock Text="Select buildings and design options:"
+                   Foreground="#555"
+                   Margin="0,0,0,6"/>
+
+        <!-- Column headers -->
+        <Grid Margin="2,0,2,3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="28"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="175"/>
+                <ColumnDefinition Width="56"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="1" Text="Model"        Foreground="#999" FontSize="11" Margin="2,0,0,0"/>
+            <TextBlock Grid.Column="2" Text="Design Option" Foreground="#999" FontSize="11"/>
+            <TextBlock Grid.Column="3" Text="Order"        Foreground="#999" FontSize="11" HorizontalAlignment="Center"/>
+        </Grid>
+
+        <!-- ── BUILDING LIST ───────────────────────────────────────── -->
+        <Border BorderBrush="#CCCCCC" BorderThickness="1" Background="White">
+            <ListBox x:Name="BuildingList"
+                     BorderThickness="0"
+                     Background="White"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     MaxHeight="320">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding"         Value="0"/>
+                        <Setter Property="Margin"          Value="0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Background"      Value="White"/>
+                        <Setter Property="BorderBrush"     Value="#EEEEEE"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            Padding="6,6">
+                                        <ContentPresenter/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="28"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="175"/>
+                                <ColumnDefinition Width="56"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Checkbox -->
+                            <CheckBox x:Name="RowCheck"
+                                      Grid.Column="0"
+                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                      VerticalAlignment="Center"/>
+
+                            <!-- Model name -->
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding DisplayName}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       Margin="2,0,8,0"/>
+
+                            <!-- Design option dropdown -->
+                            <ComboBox x:Name="DoCombo"
+                                      Grid.Column="2"
+                                      ItemsSource="{Binding DesignOptions}"
+                                      DisplayMemberPath="name"
+                                      SelectedItem="{Binding SelectedDesignOption, Mode=TwoWay}"
+                                      IsEnabled="{Binding IsSelected}"
+                                      Height="24"
+                                      FontSize="12"
+                                      Margin="0,0,6,0"/>
+
+                            <!-- Up / Down buttons – NO Click= here, wired in Python -->
+                            <StackPanel Grid.Column="3"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                <Button x:Name="BtnUp"
+                                        Content="▲"
+                                        Width="22" Height="22"
+                                        FontSize="9"
+                                        Margin="0,0,3,0"/>
+                                <Button x:Name="BtnDown"
+                                        Content="▼"
+                                        Width="22" Height="22"
+                                        FontSize="9"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <!-- ── START NUMBER ───────────────────────────────────────── -->
+        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+            <TextBlock Text="Start apartment number from:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,10,0"/>
+            <TextBox x:Name="TxtStartNumber"
+                     Text="1"
+                     Width="60"
+                     Height="26"
+                     Padding="4,3"
+                     VerticalContentAlignment="Center"/>
+        </StackPanel>
+
+        <!-- ── FOOTER ─────────────────────────────────────────────── -->
+        <StackPanel Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,18,0,0">
+            <Button x:Name="BtnCancel"
+                    Content="Cancel"
+                    Width="80" Height="28"
+                    Margin="0,0,8,0"/>
+            <Button x:Name="BtnRun"
+                    Content="Run"
+                    Width="80" Height="28"
+                    IsEnabled="False"/>
+        </StackPanel>
+
+    </StackPanel>
+</Window>

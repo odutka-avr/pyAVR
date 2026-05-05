@@ -9,6 +9,16 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import (FilteredElementCollector,
                                RevitLinkInstance)
 
+
+import sys
+import os
+
+# Get the directory of the current script
+cur_dir = os.path.dirname(__file__)
+if cur_dir not in sys.path:
+    sys.path.append(cur_dir)
+
+
 # local custom imports
 from wrappers import ProjectWrapper
 from form import Form
