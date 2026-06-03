@@ -1,5 +1,5 @@
-title: "Оформлення"
+# title: "Оформлення"
 
-layout:
-  - create_views
-  - rename
+# layout:
+#   - create_views
+#   - rename

@@ -811,13 +811,13 @@ class BuildingWrapper:
             pr_area += convert_sq_feet_to_hectares(area)
         return pr_area
 
-    def __get_areas_by_area_scheme(self, scheme_name):
+    def __get_areas_by_area_scheme(self, scheme_names):
         """Return AreaWrappers matching the given area scheme name."""
-        return [area for area in self.areas if area.scheme_name == scheme_name]
+        return [area for area in self.areas if area.scheme_name in scheme_names]
 
-    def __sort_areas_by_lvl(self, scheme_name):
+    def __sort_areas_by_lvl(self, scheme_names):
         """Return AreaWrappers for a scheme sorted by ascending level elevation."""
-        areas = self.__get_areas_by_area_scheme(scheme_name)
+        areas = self.__get_areas_by_area_scheme(scheme_names)
         areas.sort(key = lambda area: area.level.elevation)
         return areas
     
@@ -845,9 +845,9 @@ class BuildingWrapper:
         Returns:
             float: Volume in m³.
         """
-        DEFAULT_AREA_SCHEME_NAME = "Загальна площа будинку"
+        DEFAULT_AREA_SCHEME_NAMES = ["Загальна площа будівлі", "Загальна площа будинку"]
         total_volume = 0
-        sorted_areas = self.__sort_areas_by_lvl(DEFAULT_AREA_SCHEME_NAME)
+        sorted_areas = self.__sort_areas_by_lvl(DEFAULT_AREA_SCHEME_NAMES)
 
         for area in sorted_areas:
             if below0 and area.level.elevation < 0:
@@ -883,14 +883,14 @@ class BuildingWrapper:
         Returns:
             float: Area in m².
         """
-        DEFAULT_AREA_SCHEME_NAME = "Загальна площа будинку"
+        DEFAULT_AREA_SCHEME_NAMES = ["Загальна площа будівлі", "Загальна площа будинку"]
         building_area = 0
 
         for area in self.areas:
             a_is_underground = area.is_underground
 
             if not (a_is_underground and exclude_undeground_lvl):
-                if area.scheme_name == DEFAULT_AREA_SCHEME_NAME:
+                if area.scheme_name in DEFAULT_AREA_SCHEME_NAMES:
                     building_area += area.area
         
         return building_area

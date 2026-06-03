@@ -1,14 +1,14 @@
-title: "BIM Менеджмент"
+# title: "BIM Менеджмент"
 
-layout:
-  - edit
-  - -----
-  - export_schedules
-  - -----
-  - chek
-  - -----
-  - nwc
-  - -----
-  - Purge +
-  - -----
-  - export
+# layout:
+#   - edit
+#   - -----
+#   - export_schedules
+#   - -----
+#   - chek
+#   - -----
+#   - nwc
+#   - -----
+#   - Purge +
+#   - -----
+#   - export

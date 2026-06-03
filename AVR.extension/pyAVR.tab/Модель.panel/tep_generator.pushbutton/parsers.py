@@ -21,6 +21,9 @@ from wrappers import (LevelWrapper,
 from shared_parameters import Shared_parameters
 from enums import RoomCategories
 
+from pyrevit import script
+logger = script.get_logger()
+
 # ========================================================================
 
 
@@ -381,6 +384,7 @@ class DocumentParser:
                     wrapper.set_level(lv)
  
             building.add_area(wrapper)
+            #logger.debug(building.areas)
     
     # ── property lines ────────────────────────────────────────────────────
 

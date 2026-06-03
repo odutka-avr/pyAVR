@@ -1,11 +1,5 @@
 layout:
-  - renum1
   - rooming
   - apt_numbering
   - room_params_check
   - tep_generator
-  - exportdata
-  - colorize_by_ value
-  - rooms_to_GM
-  - -----
-  - decoration
