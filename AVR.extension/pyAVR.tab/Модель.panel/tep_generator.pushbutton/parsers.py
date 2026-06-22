@@ -11,6 +11,9 @@ from Autodesk.Revit.DB import (FilteredElementCollector,
                                DesignOption,
                                PropertyLine)
 
+import os
+from Autodesk.Revit.DB import ModelPathUtils
+
 # local custom imports
 from wrappers import (LevelWrapper, 
                       AreaWrapper,
@@ -25,6 +28,39 @@ from pyrevit import script
 logger = script.get_logger()
 
 # ========================================================================
+
+def get_clean_model_filename(doc):
+    """
+    Retrieves the filename of the Central Model if workshared (bypassing local usernames).
+    Falls back to the regular filename if the model is not workshared.
+    """
+    if doc.IsWorkshared:
+        try:
+            # 1. Grab the Central ModelPath object
+            central_path = doc.GetWorksharingCentralModelPath()
+            
+            # 2. Verify the path exists and is not empty
+            if central_path and not central_path.Empty:
+                # 3. Convert the ModelPath into a user-visible string path
+                user_visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(central_path)
+                
+                if user_visible_path:
+                    # 4. Normalize separators to handle both local network (\) and cloud (/) paths
+                    normalized_path = user_visible_path.replace('/', '\\')
+                    filename = normalized_path.split('\\')[-1]
+                    if filename:
+                        return filename
+        except Exception:
+            # Fall back to standard extraction if an unexpected API error occurs
+            pass
+
+    # --- FALLBACKS ---
+    # Used if non-workshared, or a detached model that hasn't been saved yet
+    if doc.PathName:
+        return os.path.basename(doc.PathName)
+    
+    # Ultimate fallback for completely new, unsaved documents (e.g., returns "Project1")
+    return doc.Title
 
 
 class DesignOptionWrapper:

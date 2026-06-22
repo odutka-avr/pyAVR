@@ -8,7 +8,7 @@ from System.Collections.ObjectModel import ObservableCollection
 from System.ComponentModel import INotifyPropertyChanged
 
 # local custom imports
-from cache import (prefill_building_sections,
+from rooming_cache import (prefill_building_sections,
                    prefill_global_width,
                    prefill_omitted_categories,
                    prefill_room_types)

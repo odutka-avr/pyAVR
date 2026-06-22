@@ -99,7 +99,9 @@
                                 </Grid.ColumnDefinitions>
                                 <CheckBox Grid.Column="0"
                                         IsChecked="{Binding IsSelected}"
-                                        VerticalAlignment="Center"/>
+                                        VerticalAlignment="Center"
+                                        Checked="OnCheckChanged"
+                                        Unchecked="OnCheckChanged"/>
                                 <TextBlock Grid.Column="1"
                                         Text="{Binding Name}"
                                         VerticalAlignment="Center"
@@ -374,17 +376,21 @@
                                 <TextBox Grid.Column="2" Tag="Float"
                                         TextChanged="OnHeightChanged"
                                         ToolTip="Числове значення у метрах"
-                                        Margin="4,0"/>
+                                        Margin="4,0"
+                                        Text="{Binding height, Mode=TwoWay}"/>
                                 <TextBox Grid.Column="3"
                                         TextChanged="OnFireRatingChanged"
-                                        Margin="4,0"/>
+                                        Margin="4,0"
+                                        Text="{Binding fire_rating, Mode=TwoWay}"/>
                                 <TextBox Grid.Column="4"
                                         TextChanged="OnEnergyClassChanged"
-                                        Margin="4,0"/>
+                                        Margin="4,0"
+                                        Text="{Binding energy_class, Mode=TwoWay}"/>
                                 <TextBox Grid.Column="5" Tag="Float"
                                         TextChanged="OnDurationChanged"
                                         ToolTip="Числове значення у місяцях"
-                                        Margin="4,0"/>
+                                        Margin="4,0"
+                                        Text="{Binding duration, Mode=TwoWay}"/>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

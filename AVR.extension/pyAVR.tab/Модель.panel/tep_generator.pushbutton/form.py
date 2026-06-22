@@ -16,7 +16,7 @@ from System.Windows.Media import VisualTreeHelper
 from System.Windows.Controls import TextBox, StackPanel, ComboBox, TextBlock
 
 from pyrevit import forms, script
-from parsers import DocumentParser
+from parsers import DocumentParser, get_clean_model_filename
 from wrappers import DevelopmentPhaseWrapper
 from enums import FloorType
 from schedule_writer import Table
@@ -52,17 +52,18 @@ class DocRowVM(INotifyPropertyChanged):
         SelectedDesignOption:         Currently selected DesignOptionWrapper.
     """
 
-    def __init__(self, parser, design_options):
+    def __init__(self, parser, design_options, is_selected=False, preselected_do=None):
         """
         Args:
             parser (DocumentParser):       Pre-constructed parser for this doc.
             design_options (list):         List of DesignOptionWrapper from
                                            parser.parse_design_options().
         """
-        self._is_selected       = False
         self._property_changed_handler = None
+        self._is_selected       = is_selected
         self.Name               = parser.model_name
         self.Doc                = parser.doc
+        self.f_name             = get_clean_model_filename(parser.doc)
         self.parser             = parser
         self.DesignOptions      = ObservableCollection[object]()
         self.SelectedDesignOption = None
@@ -71,35 +72,39 @@ class DocRowVM(INotifyPropertyChanged):
             self.DesignOptions.Add(do)
         
         # find the wrapper whose name matches Main model and set it as selected
-        preselected_do_name = "Main model"
-        for do in design_options:
-            if do.name == preselected_do_name:
-                self.SelectedDesignOption = do
-                break
+        if preselected_do:
+            self.SelectedDesignOption = preselected_do
+        else:
+            preselected_do_name = "Main model"
+            for do in design_options:
+                if do.name == preselected_do_name:
+                    self.SelectedDesignOption = do
+                    break
+        
+        # if previously selected - autoselect
+        #if is_selected:
+            #self.IsSelected = True
+            #self._notify("IsSelected")
+
         
     def add_PropertyChanged(self, handler):
         """Store the WPF binding change handler (INotifyPropertyChanged contract)."""
         self._property_changed_handler = handler
+        # fire initial notification so WPF reads the current IsSelected value
+        self._notify("IsSelected")
 
     def remove_PropertyChanged(self, handler):
         """Clear the WPF binding change handler."""
-        self._property_changed_handler = None
+        self._property_changed_handler = None     
 
     # ── IsSelected with notification ──────────────────────────────────────
 
     @property
     def IsSelected(self):
-        """True if the user checked this document for parsing."""
         return self._is_selected
 
     @IsSelected.setter
     def IsSelected(self, value):
-        """
-        Set selection state and notify WPF to re-read the property.
- 
-        The notification triggers WPF to update any bound controls —
-        specifically the IsEnabled binding on the sibling ComboBox.
-        """
         self._is_selected = value
         self._notify("IsSelected")
 
@@ -110,9 +115,10 @@ class DocRowVM(INotifyPropertyChanged):
         Args:
             prop_name (str): Name of the property that changed.
         """
+        if self._property_changed_handler is None:
+            return
         from System.ComponentModel import PropertyChangedEventArgs
         self._property_changed_handler(self, PropertyChangedEventArgs(prop_name))
-
 
 
 class LevelVM(INotifyPropertyChanged):
@@ -130,7 +136,7 @@ class LevelVM(INotifyPropertyChanged):
         wrapper (LevelWrapper): The underlying level wrapper.
         level_name (str):       Level name shown in the row.
     """
-    def __init__(self, level_wrapper):
+    def __init__(self, level_wrapper, b_lvl=False, ground_lvl=False):
         """
         Args:
             level_wrapper (LevelWrapper): Level to represent.
@@ -138,8 +144,8 @@ class LevelVM(INotifyPropertyChanged):
         self.wrapper    = level_wrapper
         self.level_name = level_wrapper.name
  
-        self._is_podium   = False
-        self._is_building = True          # checked by default
+        self._is_podium   = ground_lvl
+        self._is_building = b_lvl          # checked by default
  
         self._handler = None
  
@@ -190,20 +196,23 @@ class ModelVM(INotifyPropertyChanged):
         model_name (str):           Document title shown as the block header.
         levels (ObservableCollection): LevelVM instances sorted by elevation.
     """
-    def __init__(self, building):
+    def __init__(self, building, cached_b_lvls=None, cached_ground_lvls=None):
         """
         Args:
             building (BuildingWrapper): Source of levels and display name.
         """
         self.building   = building
         self.model_name = building.doc.Title
+        self.doc        = building.doc
         self.levels     = ObservableCollection[object]()
  
         self._is_expanded = False
         self._handler     = None
  
         for lv in sorted(building.levels, key=lambda l: l.elevation):
-            self.levels.Add(LevelVM(lv))
+            self.levels.Add(LevelVM(lv, 
+                                    b_lvl=lv.name in cached_b_lvls,
+                                    ground_lvl=lv.name in cached_ground_lvls))
  
     def add_PropertyChanged(self, handler):
         """Store WPF change handler."""
@@ -285,16 +294,16 @@ class ManualFieldsVM(INotifyPropertyChanged):
         energy_class (str | None):   Energy efficiency class string.
         duration (float | None):     Construction duration in months.
     """
-    def __init__(self, building):
+    def __init__(self, building, height=None, f_rating=None, e_class=None, duration=None):
         self.building = building
 
         self.building_id = building.building_section_id
         self.dev_phase_id = building.building_phase_id
         
-        self.height = None
-        self.fire_rating = None
-        self.energy_class = None
-        self.duration = None
+        self.height = height
+        self.fire_rating = f_rating
+        self.energy_class = e_class
+        self.duration = duration
 
         self._property_changed_handler = None
 
@@ -350,7 +359,7 @@ class Form(forms.WPFWindow):
         include_* (bool | None):          Visibility flags for optional TEP rows.
     """
 
-    def __init__(self, docs, project):
+    def __init__(self, docs, project, cache):
         """
         Args:
             docs (list):              Revit Document objects (current + links).
@@ -360,6 +369,7 @@ class Form(forms.WPFWindow):
 
         self.project                = project
         self.docs                   = docs # list[RevitLinkInstance]
+        self.cache                  = cache
         self.available_doc_parsers  = set()  # gets populated in _build_rows
         self.usr_do_choice          = None
         self.usr_model_choice       = list()    # list of BuildingWrappers
@@ -394,6 +404,12 @@ class Form(forms.WPFWindow):
         self.include_common_rooms_area_row = None
         self.include_parking_spots_total_area_row = None
         self.include_total_volume_row = None
+        # cache prep containers
+        self.model_do_cache_prep    = {}
+        self.lvl_cache_prep         = {}
+        self.model_gen_info         = {}
+
+        self.cache_prep             = {}
 
         # hide all steps until step 1 confirmed
         self._hide(self.section_b_validation)
@@ -546,18 +562,35 @@ class Form(forms.WPFWindow):
         
         for doc in self.docs:
             parser = DocumentParser(doc, self.project)
+
+            # cache lookup
+            is_selected, cached_do = self.cache.model_lookup(get_clean_model_filename(doc))
             
             # add doc parser instance to set for future parse
             self.available_doc_parsers.add(parser)
 
             doc_do_list = parser.parse_design_options()
-            rows.Add(DocRowVM(parser, design_options=doc_do_list))
+
+            if is_selected:
+                do_names = [do.name for do in doc_do_list]
+                logger.debug(do_names)
+                logger.debug(cached_do)
+                if cached_do in do_names:
+                    preselected_do_wrapper = doc_do_list[do_names.index(cached_do)]
+            else:
+                preselected_do_wrapper = None
+
+            rows.Add(DocRowVM(parser, 
+                              design_options=doc_do_list, 
+                              is_selected=is_selected, 
+                              preselected_do=preselected_do_wrapper))
 
         return rows
 
     def _populate_list(self):
         """Bind the document row collection to the DocList ItemsControl."""
         self._doc_list_ctrl.ItemsSource = self._rows
+
 
     # ── event handlers ────────────────────────────────────────────────────
 
@@ -574,7 +607,8 @@ class Form(forms.WPFWindow):
         """
         # sender is the CheckBox — its DataContext is the DocRowVM row
         row = sender.DataContext
-        row.IsSelected = sender.IsChecked
+        row.IsSelected = bool(sender.IsChecked)
+        row._notify("IsSelected")
     
     def OnDesignOptionChanged(self, sender, e):
         """
@@ -623,7 +657,14 @@ class Form(forms.WPFWindow):
         
         if not self.usr_do_choice:
             return
-        
+    
+        models = {row.f_name: {"DO": row.SelectedDesignOption.name, "previously_selected": bool(row.IsSelected)} for row in self._rows}
+        self.cache_prep["models"] = models
+        logger.debug("----- Model and DO cache collected")
+        logger.debug(self.cache_prep)
+
+        #self.cache.update_for_models()
+
         # parse selected files with chosen DO for room elements
         for parser, do_wrapper in self.usr_do_choice:
             parser.set_work_design_option(do_wrapper)
@@ -742,7 +783,12 @@ class Form(forms.WPFWindow):
         self.model_lvl_list_vms = ObservableCollection[object]()
 
         for i, model in enumerate(self.usr_model_choice):
-            vm = ModelVM(model)
+
+            # get cache for model
+            cached_b_lvls = self.cache.b_lvl_lookup(get_clean_model_filename(model.doc))
+            cached_ground_lvls = self.cache.ground_lvl_lookup(get_clean_model_filename(model.doc))
+
+            vm = ModelVM(model, cached_b_lvls=cached_b_lvls, cached_ground_lvls=cached_ground_lvls)
             vm.is_expanded = (i == 0)   # expand first model level data by default
             self.model_lvl_list_vms.Add(vm)
         
@@ -842,9 +888,15 @@ class Form(forms.WPFWindow):
         for model_vm in self.model_lvl_list_vms:
             building = model_vm.building
             to_remove = []
- 
+            cache_b_lvls = set()
+            cache_ground_lvls = set()
+
             for level_vm in model_vm.levels:
                 lv = level_vm.wrapper
+
+                # add lvl to cache if is checked
+                if level_vm.is_building:
+                    cache_b_lvls.add(lv)
  
                 if not level_vm.is_building:
                     to_remove.append(lv)
@@ -852,11 +904,22 @@ class Form(forms.WPFWindow):
  
                 if level_vm.is_podium:
                     lv.set_floor_type(FloorType.PODIUM)
+                    cache_ground_lvls.add(lv)
  
             for lv in to_remove:
                 if lv in building.levels:
                     building.levels.discard(lv)
-        
+
+        #self.cache_prep = {model.model_name: {"building lvls": {lvl.name for lvl in model.building.levels}, 
+        #                                        "building ground lvls": {lvl.name for lvl in model.building.levels if lvl.is_podium}} for model in self.model_lvl_list_vms}
+
+        for model in self.model_lvl_list_vms:
+            self.cache_prep["models"][get_clean_model_filename(model.doc)]["building lvls"] = [lvl.name for lvl in model.building.levels]
+            self.cache_prep["models"][get_clean_model_filename(model.doc)]["building ground lvls"] = [lvl.name for lvl in model.building.levels if lvl.is_podium]
+
+        logger.debug("----- Level cache collected:")
+        logger.debug(self.cache_prep)
+
         self._hide(self.section_level_validation)
         self._configure_manual_data_fields()
 
@@ -890,7 +953,50 @@ class Form(forms.WPFWindow):
         """
         rows = ObservableCollection[object]()
         for building in self.usr_model_choice:
-            rows.Add(ManualFieldsVM(building))
+
+            # get cached data for building
+            cached_manual_field_data = self.cache.manual_data_lookup(get_clean_model_filename(building.doc))
+            if cached_manual_field_data:
+                cached_height, \
+                f_rating, \
+                e_class, \
+                duration = cached_manual_field_data
+
+                rows.Add(ManualFieldsVM(building, 
+                                        cached_height, 
+                                        f_rating, 
+                                        e_class, 
+                                        duration))
+            else:
+                rows.Add(ManualFieldsVM(building))
+
+        f_con_typ, con_typ, f_prop_a, f_common_a, f_park_a, f_tot_vol = self.cache.manual_data_row_visibility_lookup()
+
+        # helper to set a checkbox and its backing flag
+        def restore_checkbox(control_name, flag, attr_name):
+            cb = self.FindName(control_name)
+            if cb:
+                cb.IsChecked = bool(flag)
+                setattr(self, attr_name, bool(flag))
+
+        restore_checkbox("ShowPropertyArea", f_prop_a, "include_property_area_row")
+        restore_checkbox("ShowCommonArea", f_common_a, "include_common_rooms_area_row")
+        restore_checkbox("ShowParkingSpotsArea", f_park_a, "include_parking_spots_total_area_row")
+        restore_checkbox("ShowTotalVolume", f_tot_vol, "include_total_volume_row")
+
+        cb = self.FindName("ShowTypeOfConstruction")
+        tb = self.FindName("TypeOfConstruction")
+        if cb:
+            cb.IsChecked = bool(f_con_typ)
+            self.include_type_of_construction_row = bool(f_con_typ)
+        if tb:
+            if f_con_typ and con_typ:
+                self._show(tb)
+                tb.Text = con_typ
+                self.type_of_construction = con_typ
+            else:
+                self._hide(tb)
+
         self._manual_info_rows = rows
         self._manual_params_ctrl.ItemsSource = self._manual_info_rows
 
@@ -1100,22 +1206,33 @@ class Form(forms.WPFWindow):
             self.project.set_type_of_construction(self.type_of_construction)
             Table._VIS_TYPE_OF_CONSTRUCTION = True
             logger.debug("Type of construction field is set to visible!")
+            self.cache_prep["flag - construction type"] = True
+            self.cache_prep["construction type"] = self.type_of_construction
+            logger.debug("----- Type of construction is cached")
         
         if self.include_property_area_row:
             Table._VIS_PROPERTY_AREA = True
             logger.debug("Property area field is set to visible!")
+            self.cache_prep["flag - property area"] = True
+            logger.debug("----- Property area row visibility is cached")
 
         if self.include_common_rooms_area_row:
             Table._VIS_COMMON_AREA = True
             logger.debug("Common rooms area field is set to visible!")
+            self.cache_prep["flag - common area"] = True
+            logger.debug("----- Common area row visibility is cached")
 
         if self.include_parking_spots_total_area_row:
             Table._VIS_TOTAL_PARKING_SPOT_AREA = True
             logger.debug("Total parking spots area field is set to visible!")
+            self.cache_prep["flag - parking spots area"] = True
+            logger.debug("----- Parking spots area row visibility is cached")
 
         if self.include_total_volume_row:
             Table._VIS_TOTAL_VOLUME = True
             logger.debug("Total volume field is set to visible!")
+            self.cache_prep["flag - total volume"] = True
+            logger.debug("----- Total volume row visibility is cached")
 
         
         # push project name and address to project instance
@@ -1130,13 +1247,26 @@ class Form(forms.WPFWindow):
         # push all data to building instances
         for row in self._manual_info_rows:
             building = row.building
+            
+            self.cache_prep["models"][get_clean_model_filename(building.doc)]["limit height"] = row.height
             building.set_max_building_height(row.height)
+            
+            self.cache_prep["models"][get_clean_model_filename(building.doc)]["fire rating"] = row.fire_rating
             building.set_fire_resistance_rating(row.fire_rating)
+            
+            self.cache_prep["models"][get_clean_model_filename(building.doc)]["energy class"] = row.energy_class
             building.set_energy_efficiency_class(row.energy_class)
+            
+            self.cache_prep["models"][get_clean_model_filename(building.doc)]["duration"] = row.duration
             building.set_construction_duration(row.duration)
 
         logger.debug("Pushed all user set data to building instances!")
-        
+        logger.debug("----- Cache for manual data is set:")
+        logger.debug(self.cache_prep)
+
+        # write updates to cache
+        self.cache.update(self.cache_prep)
+
         # set dialog result to true as the indicator that user didnt exit dialog
         self.DialogResult = True
         self.Close()

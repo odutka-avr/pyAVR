@@ -28,7 +28,7 @@ from design_option_parser import GetDesignOptions
 from room_data_form import RoomDataForm
 from room_parser import Room_parser
 from shared_parameters import Shared_parameters
-from cache import RoomingCacheManager
+from rooming_cache import RoomingCacheManager
 # ========================================================================
 
 
