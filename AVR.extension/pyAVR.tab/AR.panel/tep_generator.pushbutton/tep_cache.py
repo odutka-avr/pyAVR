@@ -103,6 +103,11 @@ class TEPCacheManager(CacheManager):
             updated_data = dict()
 
             for model_name in new_data["models"]:
+                
+                # if model is not present in cache - add nested dict with data or empty if model was not selected
+                if not model_name in self._data["models"]:
+                    self._data["models"][model_name] = self._merge(new_data["models"][model_name])
+
                 if not new_data["models"][model_name]["previously_selected"]:
                     self._data["models"][model_name]["previously_selected"] = False
                 else:

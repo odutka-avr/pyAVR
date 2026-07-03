@@ -914,6 +914,12 @@ class BuildingWrapper:
         
         return b_outline_area    
 
+    def __str__(self):
+        return "BUILDING WRAPPER: {}".format(self.building_section_id)
+
+    def __repr__(self):
+        return self.__str__()
+
 
 # =========================================================================
 
@@ -1139,6 +1145,29 @@ class SumAdapter:
         """Sum of construction durations in months across all buildings."""
         return self.__sum(lambda b: b.construction_duration)
 
+    def __str__(self):
+        return ",".join(str(b) for b in self.buildings)
+    
+    def __repr__(self):
+        return self.__str__()
+
+
+# =========================================================================
+
+
+class MergedBuildingWrapper(SumAdapter):
+    """"""
+    def __init__(self, buildings):
+        self.buildings = buildings
+        SumAdapter.__init__(self, self.buildings)
+    
+    @property
+    def building_section_id(self):
+        return "-".join(str(b.building_section_id) for b in self.buildings)
+    
+    def __str__(self):
+        return "MergedWrapper[{}]".format(", ".join(str(b) for b in self.buildings))
+    
 
 # =========================================================================
 
@@ -1175,7 +1204,7 @@ class DevelopmentPhaseWrapper(SumAdapter):
         self.buildings.add(building)
     
     def __str__(self):
-        return "NAME: {}, BUILDINGS: {}".format(self.name, ", ".join([b.building_section_id for b in list(self.buildings)]))
+        return "NAME: {}, BUILDINGS: {}".format(self.name, ", ".join(str(b) for b in self.buildings))
     
     def __repr__(self):
         return self.__str__()
