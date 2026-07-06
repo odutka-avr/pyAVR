@@ -776,8 +776,29 @@ class BuildingWrapper:
     def parking_total_area(self):
         """Total parking area including car passages (TEP item 19)."""
         return sum(r.area for r in self.parking_space_rooms) + \
-                sum(r.area for r in self.car_passage_rooms)
+                sum(r.area for r in self.car_passage_rooms) + self._get_all_rooms_area_near_parking()
     
+    def _get_all_rooms_area_near_parking(self):
+        """
+        Загальна площа приміщень паркінгу must include all rooms that are near parking spaces
+        Get all levels on which are parking spaces located, iterte through all rooms
+        if room is on the same level as parking spots - add room's area to total area
+
+        IMPORTANT - omit parking spots areas + car passage areas as they are already included
+        """
+        lvls_with_parking = set()
+        for parking_space in self.parking_space_rooms:
+            lvls_with_parking.add(parking_space.level)
+        
+        total_parking_space_area = 0
+        
+        for room in self.rooms:
+            # omit parking spots' areas and car passage areas as they are already included
+            if (room.level in lvls_with_parking) and not (room in self.car_passage_rooms or room in self.parking_space_rooms):
+                total_parking_space_area += room.area
+        
+        return total_parking_space_area
+
     @property
     def parking_spots_area(self):
         """Parking space area excluding car passages (TEP item 19 sub-row)."""
