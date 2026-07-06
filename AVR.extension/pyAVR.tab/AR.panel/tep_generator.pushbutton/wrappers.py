@@ -13,8 +13,12 @@ from value_conversion import (convert_feet_to_m,
                               convert_sq_feet_to_sq_m)
 
 from shared_parameters import Shared_parameters
-
 from enums import FloorType, RoomCategories
+
+# configure debugging
+from pyrevit import script
+logger = script.get_logger()
+
 
 # ========================================================================
 
@@ -1032,26 +1036,66 @@ class SumAdapter:
         """Sum of building footprint areas."""
         return self.__sum(lambda b: b.get_building_outline_area())
     
+    def _numeric_max_height(self):
+        """
+        Return the highest max_building_height across buildings as a float.
+        Handles None values and MergedBuildingWrapper instances that
+        return strings from their max_building_height display property.
+        """
+        values = []
+        for b in self.buildings:
+            val = b.max_building_height
+            if val is None:
+                continue
+            try:
+                # handles both float (BuildingWrapper) and
+                # string like "15.00" or "12.00-18.00" (MergedBuildingWrapper)
+                if isinstance(val, str):
+                    # take the highest number from a range string
+                    val = max(float(v) for v in val.split("-"))
+                values.append(float(val))
+            except (TypeError, ValueError):
+                continue
+        return values
+
     @property
     def max_building_height(self):
-        """Height range or single value across buildings."""
-        max_height = max(b.max_building_height for b in self.buildings)
-        min_height = min(b.max_building_height for b in self.buildings)
-        if max_height == min_height:
-            return str(max_height)
-        return "{:.2f}-{:.2f}".format(min_height, max_height)
+        values = self._numeric_max_height()
+        if not values:
+            return None
+        max_h = max(values)
+        min_h = min(values)
+        if max_h == min_h:
+            return str(max_h)
+        return "{:.2f}-{:.2f}".format(min_h, max_h)
     
     @property
     def fire_resistance_rating(self):
         """Comma-separated distinct fire resistance ratings."""
-        f_ratings = set([str(b.fire_resistance_rating) for b in self.buildings])
-        return ", ".join(f_ratings)
+        ratings = set()
+        for b in self.buildings:
+            if ", " in b.fire_resistance_rating:
+                for r in b.fire_resistance_rating.split(", "):
+                    ratings.add(r)
+            else:
+                ratings.add(b.fire_resistance_rating)
+        #f_ratings = set([str(b.fire_resistance_rating) for b in self.buildings])
+        logger.debug(ratings)
+        return ", ".join(sorted(ratings))
     
     @property
     def energy_efficiency_class(self):
         """Comma-separated distinct energy efficiency classes."""
-        e_efficiensy_classes = set([str(b.energy_efficiency_class) for b in self.buildings])
-        return ", ".join(e_efficiensy_classes)
+        ratings = set()
+        for b in self.buildings:
+            if ", " in b.energy_efficiency_class:
+                for r in b.energy_efficiency_class.split(", "):
+                    ratings.add(r)
+            else:
+                ratings.add(b.energy_efficiency_class)
+        #f_ratings = set([str(b.fire_resistance_rating) for b in self.buildings])
+        logger.debug(ratings)
+        return ", ".join(sorted(ratings))
     
     def get_total_area(self):
         """Sum of total building areas including underground."""
@@ -1166,7 +1210,7 @@ class MergedBuildingWrapper(SumAdapter):
         return "-".join(str(b.building_section_id) for b in self.buildings)
     
     def __str__(self):
-        return "MergedWrapper[{}]".format(", ".join(str(b) for b in self.buildings))
+        return "MergedWrapper [{}]".format(", ".join(str(b) for b in self.buildings))
     
 
 # =========================================================================
