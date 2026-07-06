@@ -181,6 +181,73 @@
 
             </StackPanel>
 
+            <!-- ══════════════ MERGE MODELS ══════════════ -->
+
+            <StackPanel x:Name="MergeCheck" Margin="12,0,12,12" Visibility="Collapsed">
+
+                <TextBlock Text="Об'єднання будівель (опціонально)" 
+                           Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="Оберіть будівлі в межах однієї черги та натисніть 'Об'єднати вибрані'." 
+                           Foreground="#888780" Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                <ItemsControl x:Name="PhaseMergeList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderThickness="1" BorderBrush="#CECBF6" CornerRadius="4" Margin="0,0,0,8" Padding="10">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding PhaseName, StringFormat='Черга {0}'}" 
+                                               FontWeight="SemiBold" Foreground="#3C3489" Margin="0,0,0,8"/>
+                                    
+                                    <ItemsControl ItemsSource="{Binding MergeGroups}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="24"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    
+                                                    <CheckBox Grid.Column="0" 
+                                                              IsChecked="{Binding IsSelected}" 
+                                                              VerticalAlignment="Center" 
+                                                              Visibility="{Binding CheckBoxVisibility}"/>
+                                                    
+                                                    <TextBlock Grid.Column="1" 
+                                                               Text="{Binding DisplayName}" 
+                                                               VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    
+                                                    <Button Grid.Column="2" Content="✕ Скасувати" 
+                                                            Background="Transparent" Foreground="#D9534F" 
+                                                            Padding="6,2" Cursor="Hand"
+                                                            Visibility="{Binding UndoVisibility}"
+                                                            Click="OnUndoMergeClick" 
+                                                            Tag="{Binding .}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    
+                                    <Button Content="Об'єднати вибрані" 
+                                            HorizontalAlignment="Left" Margin="24,8,0,0"
+                                            Padding="12,4" Background="#EEEDFE" Foreground="#534AB7"
+                                            Click="OnMergeSelectedClick" 
+                                            Tag="{Binding .}"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Button x:Name="BtnConfirmMerge"
+                        Content="Підтвердити об'єднання"
+                        HorizontalAlignment="Right"
+                        Margin="0,12,0,0"
+                        Click="OnConfirmMerge"/>
+
+            </StackPanel>
+
             <!-- ══════════════ FLOOR CHECK ══════════════ -->
 
             <StackPanel x:Name="FloorCheck" Margin="12,0,12,12">

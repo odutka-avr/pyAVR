@@ -222,7 +222,9 @@ class ScheduleWriter(object):
         """Number of distinct apartment types (1-кімнатна, 2-кімнатна…)."""
         return len(self._get_project_aparts_room_counts)
 
-    
+    def _get_column_units(self, dev_phase):
+        return 0
+
     @property
     def num_of_cols(self):
         """
@@ -660,6 +662,8 @@ class ScheduleWriter(object):
         override.BackgroundColor = True
         new_style.SetCellStyleOverrideOptions(override)
         section.SetCellStyle(row_id, col_id, new_style)
+
+
 
 class Table:
     """

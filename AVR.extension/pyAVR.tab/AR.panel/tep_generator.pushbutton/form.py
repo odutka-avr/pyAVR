@@ -14,10 +14,11 @@ from System.ComponentModel import INotifyPropertyChanged
 from System.Windows.Media import Brushes
 from System.Windows.Media import VisualTreeHelper
 from System.Windows.Controls import TextBox, StackPanel, ComboBox, TextBlock
+from System.ComponentModel import PropertyChangedEventArgs
 
 from pyrevit import forms, script
 from parsers import DocumentParser, get_clean_model_filename
-from wrappers import DevelopmentPhaseWrapper
+from wrappers import DevelopmentPhaseWrapper, MergedBuildingWrapper
 from enums import FloorType
 from schedule_writer import Table
 
@@ -275,6 +276,88 @@ class BuildingRowVM(INotifyPropertyChanged):
         self._property_changed_handler = None
 
 
+# ══════════════════════════════════════════════════════════════════════
+# merging models
+
+class MergeGroupVM(INotifyPropertyChanged):
+    def __init__(self, buildings):
+        self.buildings = buildings
+        self._is_selected = False
+        self._property_changed_handler = None
+    
+    def add_PropertyChanged(self, handler):
+        self._property_changed_handler = handler
+
+    def remove_PropertyChanged(self, handler):
+        self._property_changed_handler = None
+
+    def _notify(self, prop_name):
+        if self._property_changed_handler:
+            self._property_changed_handler(self, PropertyChangedEventArgs(prop_name))
+    
+    @property
+    def DisplayName(self):
+        if len(self.buildings) > 1:
+            return "-".join(b.building_section_id for b in self.buildings)
+        return self.buildings[0].building_section_id
+    
+    @property
+    def IsMerged(self):
+        return len(self.buildings) > 1
+    
+    @property
+    def IsSelected(self):
+        return self._is_selected
+
+    @IsSelected.setter
+    def IsSelected(self, value):
+        self._is_selected = value
+        self._notify("IsSelected")
+
+
+class PhaseGroupVM(INotifyPropertyChanged):
+    def __init__(self, phase, buildings):
+        self.phase = phase
+        self.PhaseName = phase.name
+        self.MergeGroups = ObservableCollection[object]()
+        
+        for b in buildings:
+            self.MergeGroups.Add(MergeGroupVM([b]))
+            
+        self._property_changed_handler = None
+
+    def add_PropertyChanged(self, handler):
+        self._property_changed_handler = handler
+
+    def remove_PropertyChanged(self, handler):
+        self._property_changed_handler = None
+
+    def _notify(self, prop_name):
+        if self._property_changed_handler:
+            self._property_changed_handler(self, PropertyChangedEventArgs(prop_name))
+
+    def merge_selected(self):
+        selected = [mg for mg in self.MergeGroups if mg.IsSelected and not mg.IsMerged]
+        if len(selected) > 1:
+            merged_buildings = []
+            for mg in selected:
+                merged_buildings.extend(mg.buildings)
+                self.MergeGroups.Remove(mg)
+            
+            new_mg = MergeGroupVM(merged_buildings)
+            self.MergeGroups.Add(new_mg)
+    
+    def undo_merge(self, merge_group):
+        if merge_group in self.MergeGroups:
+            self.MergeGroups.Remove(merge_group)
+            for b in merge_group.buildings:
+                # add previously merged buildings as seperate rows 
+                # (seperate merged groups with one element)
+                self.MergeGroups.Add(MergeGroupVM([b]))
+
+
+# ══════════════════════════════════════════════════════════════════════
+
 
 class ManualFieldsVM(INotifyPropertyChanged):
     """
@@ -387,6 +470,11 @@ class Form(forms.WPFWindow):
         self._btn_confirm_b         = self.FindName("BtnConfirmB")
         self._b_rows                = None
 
+        # model merge section
+        self.section_merge_check = self.FindName("MergeCheck")
+        self._phase_merge_list = self.FindName("PhaseMergeList")
+        self.merged_models_dict = {}
+
         # building level data check
         self.section_level_validation = self.FindName("FloorCheck")
 
@@ -413,6 +501,7 @@ class Form(forms.WPFWindow):
 
         # hide all steps until step 1 confirmed
         self._hide(self.section_b_validation)
+        self._hide(self.section_merge_check)
         self._hide(self.section_level_validation)
         self._hide(self.section_manual_fill)
 
@@ -763,8 +852,79 @@ class Form(forms.WPFWindow):
         self._hide(self.section_b_validation)
 
         # prepare section for level check
-        self._configure_level_check()
+        #self._configure_level_check()
+
+        # prepare section for model data merge
+        self._configure_merge_section()
     
+    
+    # =============== MERGE MODELS (BY CHOICE) ===============
+
+    def _configure_merge_section(self):
+        self._phase_vms = ObservableCollection[object]()
+        
+        for phase in self.project.development_phases:
+            self._phase_vms.Add(PhaseGroupVM(phase, phase.buildings))
+        
+        self._phase_merge_list.ItemsSource = self._phase_vms
+        self._show(self.section_merge_check)
+    
+    # ── event handlers ────────────────────────────────────────────────────
+
+    def OnMergeSelectedClick(self, sender, args):
+        """Обробник натискання 'Об'єднати вибрані' в межах однієї черги"""
+        # sender.Tag містить DataContext (тобто PhaseGroupVM)
+        phase_vm = sender.Tag
+        if phase_vm:
+            phase_vm.merge_selected()
+    
+    def OnUndoMergeClick(self, sender, args):
+        """Обробник натискання 'X Скасувати'"""
+        # sender.Tag містить MergeGroupVM
+        merge_group_vm = sender.Tag
+        
+        # Нам потрібно знайти батьківську фазу (PhaseGroupVM) щоб видалити та додати назад елементи.
+        # Шукаємо в якій фазі знаходиться цей merge_group_vm
+        for phase_vm in self._phase_vms:
+            if merge_group_vm in phase_vm.MergeGroups:
+                phase_vm.undo_merge(merge_group_vm)
+                break
+    
+    def OnConfirmMerge(self, sender, args):
+        """Збираємо фінальний словник із об'єднаними моделями та переходимо далі"""
+        for phase_vm in self._phase_vms:
+
+            for mg in phase_vm.MergeGroups:
+                
+                # if merge group consists of a single building - skip
+                if len(mg.buildings) > 1:
+                    # remove already merged building from phase.buildings set
+                    for b in mg.buildings:
+                        phase_vm.phase.buildings.remove(b)
+                
+                    # since buildings were merged - add merged wrapper which contains merged building wrappers
+                    phase_vm.phase.buildings.add(MergedBuildingWrapper(mg.buildings))
+
+        logger.debug(self.project.development_phases)
+        #self.merged_models_dict = {}
+        
+        # for phase_vm in self._phase_vms:
+        #     for mg in phase_vm.MergeGroups:
+        #         # Ключем є унікальне відображуване ім'я (напр. "БД-2 + БД-3"),
+        #         # Значенням є список об'єктів BuildingWrapper
+        #         self.merged_models_dict[mg.DisplayName] = mg.buildings
+        
+        # # Відладка / Логування словника (можете прибрати)
+        # logger.debug("--- Merged Dictionary ---")
+        # for k, v in self.merged_models_dict.items():
+        #     logger.debug("{}: {}".format(k, [b.building_section_id for b in v]))
+
+        # Переходимо до наступного кроку (Перевірка поверхів)
+        self._hide(self.section_merge_check)
+        
+        # prepare section for level check
+        self._configure_level_check()
+
 
     # =============== LEVEL DATA CHECK ===============
 
@@ -944,8 +1104,6 @@ class Form(forms.WPFWindow):
         self._show(self.section_manual_fill)
         self._hide(self.FindName("TypeOfConstruction"))
 
-    # ── event handlers ────────────────────────────────────────────────────
-
     def _build_manual_field_rows(self):
         """
         Create ManualFieldsVM instances for all parsed buildings and bind
@@ -999,6 +1157,8 @@ class Form(forms.WPFWindow):
 
         self._manual_info_rows = rows
         self._manual_params_ctrl.ItemsSource = self._manual_info_rows
+
+    # ── event handlers ────────────────────────────────────────────────────
 
     def OnProjectNameChanged(self, sender, e):
         """
