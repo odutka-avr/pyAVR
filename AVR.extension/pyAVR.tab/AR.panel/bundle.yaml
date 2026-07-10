@@ -3,3 +3,5 @@ layout:
   - apt_numbering
   - room_params_check
   - tep_generator
+  - sheet_rename
+  - sheet_renumber
