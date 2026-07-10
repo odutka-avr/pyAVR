@@ -1,2 +1,3 @@
 layout:
   - column_auto_dim
+  - beam_autoreinforcement
