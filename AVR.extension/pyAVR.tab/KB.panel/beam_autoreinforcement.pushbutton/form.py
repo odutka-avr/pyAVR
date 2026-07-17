@@ -186,6 +186,7 @@ class Form(forms.WPFWindow):
         self.rebar_shapes = rebar_shapes
 
         RebarRow.REBAR_TYPES = rebar_types.keys()
+        logger.debug(self.rebar_types)
 
         # rebar container lists
         self.bottom_bars = list()
@@ -232,6 +233,11 @@ class Form(forms.WPFWindow):
     def ConstructiveCheckBox_Unchecked(self, sender, args):
         self.ConstructiveSideRebarListsContainer.Visibility = Visibility.Collapsed
     
+    def _validate_empty_offset_field(self, field_value):
+        if not field_value:
+            return 0
+        return field_value
+    
     def collect_data(self):
         def rows_to_list(rows):
             return [r.get_data() for r in rows]
@@ -242,14 +248,21 @@ class Form(forms.WPFWindow):
                 "c_bottom": self.CBottomBox.Text,
                 "c_side": self.CSideBox.Text,
             },
-            "bottom_longitudinal": rows_to_list(self.bottom_bars),
-            "upper_longitudinal": rows_to_list(self.top_bars),
+            "bottom_longitudinal": {
+                "bars": rows_to_list(self.bottom_bars),
+                "end_offset": self._validate_empty_offset_field(self.BottomOffsetBox.Text),
+            },
+            "upper_longitudinal": {
+                "bars": rows_to_list(self.top_bars),
+                "end_offset": self._validate_empty_offset_field(self.TopOffsetBox.Text),
+            },
             "side_longitudinal": {
                 "enabled": bool(self.ConstructiveCheckBox.IsChecked),
                 "bars": rows_to_list(self.side_bars),
+                "end_offset": self._validate_empty_offset_field(self.SideOffsetBox.Text),
             },
             "stirrups": {
-                "rebar_type": self.StirrupClassCombo.SelectedItem,
+                "rebar_type":  self.StirrupClassCombo.SelectedItem,
                 "span_zone_step": self.SpanStepBox.Text,
                 "support_zone_step": self.SupportStepBox.Text,
                 "l1": self.L1Box.Text,

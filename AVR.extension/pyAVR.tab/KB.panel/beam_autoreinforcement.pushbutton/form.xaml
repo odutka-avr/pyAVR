@@ -44,6 +44,11 @@
             <Setter Property="Margin" Value="0,6,0,0"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
+
+        <!-- Стиль для поля "виступ за межі балки" в кожній секції армування -->
+        <Style x:Key="OffsetRow" TargetType="Grid">
+            <Setter Property="Margin" Value="0,14,0,0"/>
+        </Style>
     </Window.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -90,11 +95,18 @@
 
                     <TextBlock Text="Ліва грань" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
                     <StackPanel x:Name="LowerRebarsPanel"/>
-                    <!-- <Button x:Name="AddLowerLeftBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddLowerLeft_Click"/> -->
 
                     <TextBlock Text="Права грань" Style="{StaticResource SubLabel}"/>
-                    <!-- <StackPanel x:Name="LowerRightPanel"/> -->
                     <Button x:Name="AddLowerRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddLowerRebar_Click"/>
+
+                    <Grid Style="{StaticResource OffsetRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Виступ за межі балки, мм" Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                        <TextBox Grid.Column="1" x:Name="BottomOffsetBox" Style="{StaticResource NumBox}" Text="0"/>
+                    </Grid>
                 </StackPanel>
             </Border>
 
@@ -105,11 +117,18 @@
 
                     <TextBlock Text="Ліва грань" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
                     <StackPanel x:Name="UpperRebarsPanel"/>
-                    <!-- <Button x:Name="AddUpperLeftBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddUpperLeft_Click"/> -->
 
                     <TextBlock Text="Права грань" Style="{StaticResource SubLabel}"/>
-                    <!-- <StackPanel x:Name="UpperRightPanel"/> -->
                     <Button x:Name="AddUpperRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddUpperRebar_Click"/>
+
+                    <Grid Style="{StaticResource OffsetRow}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Виступ за межі балки, мм" Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                        <TextBox Grid.Column="1" x:Name="TopOffsetBox" Style="{StaticResource NumBox}" Text="0"/>
+                    </Grid>
                 </StackPanel>
             </Border>
 
@@ -125,11 +144,18 @@
                     <StackPanel x:Name="ConstructiveSideRebarListsContainer" Visibility="Collapsed" Margin="0,12,0,0">
                         <TextBlock Text="Верх" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
                         <StackPanel x:Name="ConstructiveSideRebarPanel"/>
-                        <!-- <Button x:Name="AddConstructiveTopBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddConstructiveTop_Click"/> -->
 
                         <TextBlock Text="Низ" Style="{StaticResource SubLabel}"/>
-                        <!-- <StackPanel x:Name="ConstructiveBottomPanel"/> -->
                         <Button x:Name="AddConstructiveSideRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddConstructiveSideRebar_Click"/>
+
+                        <Grid Style="{StaticResource OffsetRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="220"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Виступ за межі балки, мм" Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                            <TextBox Grid.Column="1" x:Name="SideOffsetBox" Style="{StaticResource NumBox}" Text="0"/>
+                        </Grid>
                     </StackPanel>
                 </StackPanel>
             </Border>
