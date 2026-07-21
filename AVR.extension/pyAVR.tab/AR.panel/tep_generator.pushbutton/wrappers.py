@@ -203,7 +203,7 @@ class RoomWrapper:
         Development phase ID from AVR_Номер черги project parameter.
         Uses LookupParameter because it is a project (not instance) param.
         """
-        return self.room_el.LookupParameter(Shared_parameters.BUILDING_DEV_PHASE_NUMBER).AsString()
+        return self.room_el.get_Parameter(Shared_parameters.BUILDING_DEV_PHASE_NUMBER).AsString()
     
     @property
     def building_section_id(self):
