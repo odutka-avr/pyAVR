@@ -760,6 +760,7 @@ def map_outline_to_global_curves(outline_local, station_point, sect_right, sect_
 def create_stirrup_zone_set(
     doc,
     beam,
+    shape,
     zone_start_point,
     sect_right,
     sect_up,
@@ -770,87 +771,136 @@ def create_stirrup_zone_set(
     step,
     include_first_bar,
     include_last_bar,
+    local_origin_xy,
+    b,
+    h,
+    c_side,
+    c_top,
+    c_bottom,
+    d_stirrup_own,
 ):
     """
     Створює ОДИН елемент Rebar (замкнений хомут у зоні) і перетворює
-    його на масив "Maximum Spacing" уздовж довжини зони.
- 
-    Перший хомут масиву ставиться в zone_start_point; Revit сам
-    розподіляє решту хомутів по zone_length з фактичним кроком
-    <= step (без "хвостового" залишку — це вбудована поведінка
-    Maximum Spacing).
- 
+    його на масив уздовж довжини зони (Number With Spacing).
+
+    Якщо передано shape (RebarShape) — хомут створюється з цієї
+    іменованої форми через CreateFromRebarShape. origin для цього
+    методу — ЛІВИЙ НИЖНІЙ КУТ bounding box форми (документація API),
+    обчислюється з local_origin_xy (порахований один раз зовні, у
+    create_all_stirrup_sets, за формулами:
+        X = -b/2 + c_side + d_stirrup_own
+        Y = -h/2 + c_bottom + d_stirrup_own
+    ). Після створення форма підганяється під фактичний переріз балки
+    через shared-параметри ADSK_A_bent / ADSK_B_bent (ширина/висота
+    хомута):
+        width  = b - c_side * 2 - d_stirrup_own
+        height = h - c_top - c_bottom - d_stirrup_own
+
+    Якщо shape не передано (None) — хомут будується геометрично, як
+    контур з 4 ліній (fallback), обчислений напряму з b/h/covers балки
+    через map_outline_to_global_curves(outline_local, ...).
+
     Args:
         doc (Document): активний документ Revit.
         beam (FamilyInstance): балка-хост.
+        shape (RebarShape або None): іменована форма хомута.
         zone_start_point (XYZ): глобальна точка початку зони —
             true_start + axis * zone_start_station.
         sect_right, sect_up (XYZ): локальний базис перерізу балки.
+        axis (XYZ): нормалізований напрямок балки (normal для
+            CreateFromCurves у fallback-гілці).
         outline_local (list[XYZ]): контур хомута в локальних
-            координатах, з build_stirrup_outline_local() — той самий
-            для всіх трьох зон (переріз балки сталий по довжині).
+            координатах, з build_stirrup_outline_local() — потрібен
+            лише для fallback-гілки (else).
         bar_type (RebarBarType): тип арматури хомута.
         zone_length (float): довжина зони вздовж осі балки, фути.
         step (float): бажаний (максимальний) крок хомутів у зоні, фути.
         include_first_bar (bool): чи створювати фізичний хомут на
-            самому початку зони (False — якщо цю позицію вже покриває
-            останній хомут попередньої зони).
+            самому початку зони.
         include_last_bar (bool): чи створювати фізичний хомут у самому
-            кінці зони (False — якщо цю позицію покриє перший хомут
-            наступної зони).
- 
+            кінці зони.
+        local_origin_xy (XYZ): локальна точка (X, Y, 0) — лівий нижній
+            кут перерізу хомута, порахована один раз у
+            create_all_stirrup_sets і передана сюди (не рахується
+            всередині функції).
+        b, h (float): розміри перерізу балки, фути.
+        c_side, c_top, c_bottom (float): захисний шар, фути.
+        d_stirrup_own (float): діаметр самого хомута, фути.
+
     Returns:
         Rebar: створений елемент-масив (представляє всю зону).
- 
+
     Raises:
         ValueError: якщо zone_length <= 0 або step <= 0.
     """
     EPS = 1e-9
- 
+
     if zone_length <= EPS:
         raise ValueError("Довжина зони має бути додатною (отримано {0})".format(zone_length))
     if step <= EPS:
         raise ValueError("Крок хомутів має бути додатним (отримано {0})".format(step))
- 
+
     n_intervals = int(math.ceil(zone_length / step - EPS))
     n_intervals = max(n_intervals, 1)
     number_of_positions = n_intervals + 1  # включно з обома межами зони
- 
+
+    # обчислення контуру для fallback-гілки лишається незмінним,
+    # незалежно від того, яка гілка (if/else) буде обрана нижче
     curves = map_outline_to_global_curves(outline_local, zone_start_point, sect_right, sect_up)
     curve_list = List[Curve]()
     for c in curves:
         curve_list.Add(c)
- 
-    rebar = Rebar.CreateFromCurves(
-        doc,
-        RebarStyle.StirrupTie,
-        bar_type,
-        None, None,
-        beam,
-        axis,
-        curve_list,
-        RebarHookOrientation.Left,
-        RebarHookOrientation.Left,
-        True,
-        True,
-    )
- 
+
+    if shape:
+        global_origin = (
+            zone_start_point
+            + sect_right * local_origin_xy.X
+            + sect_up * local_origin_xy.Y
+        )
+        width = b - c_side * 2 - d_stirrup_own
+        height = h - c_top - c_bottom - d_stirrup_own
+
+        rebar = Rebar.CreateFromRebarShape(
+            doc,
+            shape,
+            bar_type,
+            beam,
+            global_origin,
+            sect_right,
+            sect_up,
+        )
+
+        rebar.LookupParameter("ADSK_A_bent").Set(width)
+        rebar.LookupParameter("ADSK_B_bent").Set(height)
+
+        doc.Regenerate()
+
+    else:
+        rebar = Rebar.CreateFromCurves(
+            doc,
+            RebarStyle.StirrupTie,
+            bar_type,
+            None, None,
+            beam,
+            axis,
+            curve_list,
+            RebarHookOrientation.Left,
+            RebarHookOrientation.Left,
+            True,
+            True,
+        )
+
+    logger.debug(rebar)
+
     accessor = rebar.GetShapeDrivenAccessor()
-    # accessor.SetLayoutAsMaximumSpacing(
-    #     step,
-    #     zone_length,
-    #     True,               # barsOnNormalSide
-    #     include_first_bar,
-    #     include_last_bar,
-    # )
     accessor.SetLayoutAsNumberWithSpacing(
         number_of_positions,
         step,
-        True,
+        False,
         include_first_bar,
-        include_last_bar
+        include_last_bar,
     )
- 
+
     return rebar
  
  
@@ -861,6 +911,7 @@ def create_stirrup_zone_set(
 def create_all_stirrup_sets(
     doc,
     beam,
+    shape,
     true_start,
     axis,
     sect_right,
@@ -884,15 +935,23 @@ def create_all_stirrup_sets(
         1. приопорна зона біля початку балки (довжина l1, крок support_step)
         2. прогінна зона (довжина length - 2*end_offset - l1 - l2, крок span_step)
         3. приопорна зона біля кінця балки (довжина l2, крок support_step)
- 
-    Межові хомути між зонами не дублюються: перша зона й прогінна зона
-    не створюють фізичний хомут на своїй останній позиції (її створює
-    вже наступна зона як свою першу), окрім фінальної зони (l2), яка
-    включає і першу, і останню позицію (== 50мм від кінця балки).
- 
+
+    Межові хомути між зонами не дублюються і не пропускаються: рівно
+    одна із двох сусідніх зон "бере на себе" створення хомута на
+    спільній межі (include_first_bar=True), а інша її пропускає
+    (include_last_bar=False) — інакше або отримаємо дублікат, або
+    хомут на межі взагалі не з'явиться.
+
+        zone1 (l1):     include_first=True,  include_last=False
+        zone2 (прогін):  include_first=True,  include_last=False
+        zone3 (l2):     include_first=True,  include_last=True
+
     Args:
         doc (Document): активний документ Revit.
         beam (FamilyInstance): балка-хост.
+        shape (RebarShape або None): іменована форма хомута; якщо
+            None — використовується геометричний fallback у
+            create_stirrup_zone_set().
         true_start (XYZ): центр перерізу балки на початку
             (з compute_true_section_center_at_start()).
         axis (XYZ): нормалізований напрямок балки.
@@ -903,22 +962,20 @@ def create_all_stirrup_sets(
         l1, l2 (float): довжини приопорних зон, фути.
         support_step, span_step (float): бажані кроки хомутів, фути.
         bar_type (RebarBarType): тип арматури хомутів.
-        d_stirrup_own (float): діаметр хомута (для побудови контуру).
+        d_stirrup_own (float): діаметр хомута, фути.
         b, h (float): розміри перерізу балки, фути.
         c_side, c_top, c_bottom (float): захисний шар, фути.
- 
+
     Returns:
         list[Rebar]: три елементи-масиви, у порядку [зона l1, прогінна
-            зона, зона l2]. Якщо middle_length == 0, прогінна зона
-            все одно повертається (як масив з фактичною кількістю
-            позицій, що звелась до межових точок).
- 
+            зона, зона l2].
+
     Raises:
         ValueError: якщо задані l1, l2, end_offset не вміщуються
             в довжину балки.
     """
     EPS = 1e-9
- 
+
     middle_length = length - 2.0 * end_offset - l1 - l2
     if middle_length < -EPS:
         raise ValueError(
@@ -928,48 +985,67 @@ def create_all_stirrup_sets(
             )
         )
     middle_length = max(middle_length, 0.0)
- 
+
+    # outline_local лишається для fallback-гілки (shape is None),
+    # обчислюється тут один раз, як і раніше
     outline_local = build_stirrup_outline_local(b, h, c_side, c_top, c_bottom, d_stirrup_own)
 
-    logger.debug("LOCAL: {}".format(outline_local))
+    logger.debug("LOCAL OUTLINE: {}".format(outline_local))
     logger.debug([(convert_feet_to_mm(c.X),
                    convert_feet_to_mm(c.Y),
                    convert_feet_to_mm(c.Z)) for c in outline_local])
- 
+
+    # локальна точка origin (лівий нижній кут перерізу хомута) —
+    # рахується ОДИН РАЗ тут, до циклу по зонах, і передається далі
+    # незмінною в кожен виклик create_stirrup_zone_set
+    local_origin_x = -b / 2.0 + c_side
+    local_origin_y = -h / 2.0 + c_bottom
+    local_origin_xy = XYZ(local_origin_x, local_origin_y, 0.0)
+
+    logger.debug("LOCAL ORIGIN XY (mm): ({0}, {1})".format(
+        convert_feet_to_mm(local_origin_x), convert_feet_to_mm(local_origin_y)
+    ))
+
+    # виправлено: раніше zone2_start/zone3_start не враховували end_offset
     zone1_start = end_offset
-    zone2_start = l1
-    zone3_start = l1 + middle_length
- 
+    zone2_start = end_offset + l1
+    zone3_start = end_offset + l1 + middle_length
+
     created = []
-    
+
     # ---- зона l1 (приопорна, біля початку балки) ----
     zone1_point = true_start + axis * zone1_start
     rebar1 = create_stirrup_zone_set(
-        doc, beam, zone1_point, sect_right, sect_up, axis, outline_local, bar_type,
+        doc, beam, shape, zone1_point, sect_right, sect_up, axis, outline_local, bar_type,
         zone_length=l1, step=support_step,
         include_first_bar=True, include_last_bar=False,
+        local_origin_xy=local_origin_xy,
+        b=b, h=h, c_side=c_side, c_top=c_top, c_bottom=c_bottom, d_stirrup_own=d_stirrup_own,
     )
     created.append(rebar1)
-    
-    
+
     # ---- прогінна зона ----
     zone2_point = true_start + axis * zone2_start
     rebar2 = create_stirrup_zone_set(
-        doc, beam, zone2_point, sect_right, sect_up, axis, outline_local, bar_type,
+        doc, beam, shape, zone2_point, sect_right, sect_up, axis, outline_local, bar_type,
         zone_length=middle_length, step=span_step,
-        include_first_bar=False, include_last_bar=False,
+        include_first_bar=True, include_last_bar=False,
+        local_origin_xy=local_origin_xy,
+        b=b, h=h, c_side=c_side, c_top=c_top, c_bottom=c_bottom, d_stirrup_own=d_stirrup_own,
     )
     created.append(rebar2)
- 
+
     # ---- зона l2 (приопорна, біля кінця балки) ----
     zone3_point = true_start + axis * zone3_start
     rebar3 = create_stirrup_zone_set(
-        doc, beam, zone3_point, sect_right, sect_up, axis, outline_local, bar_type,
+        doc, beam, shape, zone3_point, sect_right, sect_up, axis, outline_local, bar_type,
         zone_length=l2, step=support_step,
-        include_first_bar=False, include_last_bar=True,
+        include_first_bar=True, include_last_bar=True,
+        local_origin_xy=local_origin_xy,
+        b=b, h=h, c_side=c_side, c_top=c_top, c_bottom=c_bottom, d_stirrup_own=d_stirrup_own,
     )
     created.append(rebar3)
-    
+
     logger.debug("CREATED BARS: {}".format(created))
 
     return created
@@ -984,29 +1060,28 @@ class RebarPositionType:
 
 class RebarWrapper:
     AVAILABLE_R_TYPES = None
-    # C_TOP = None
-    # C_BOTTOM = None
-    # C_SIDES = None
 
     def __init__(self, r_type_str):
         self.r_type = self.AVAILABLE_R_TYPES.get(r_type_str)
         self.d = self.r_type.get_Parameter(BuiltInParameter.REBAR_BAR_DIAMETER).AsDouble()
+        self._local_coordinates = None
+        self._line = None
 
     @property
     def local_coordinates(self):
-        return self.local_coordinates
-    
+        return self._local_coordinates
+
     @local_coordinates.setter
     def local_coordinates(self, coordinates):
-        self.local_coordinates = coordinates
+        self._local_coordinates = coordinates
 
     @property
     def line(self):
-        return self.line
-    
+        return self._line
+
     @line.setter
     def line(self, line):
-        self.line = line
+        self._line = line
 
     
 def generate_rebars(doc, beam, bars, sect_up):
@@ -1055,6 +1130,8 @@ if selected_beam:
     span_step = convert_mm_to_feet(float(usr_input["stirrups"]["span_zone_step"]))
     d_stirrup = r_types.get(usr_input["stirrups"]["rebar_type"]).get_Parameter(BuiltInParameter.REBAR_BAR_DIAMETER).AsDouble()
     stirrup_bar_type = r_types.get(usr_input["stirrups"]["rebar_type"])
+    stirrup_shape_name = "Х_51"
+    shape = get_rebar_shape_by_name(DOC, stirrup_shape_name)
 
     STIRRUP_END_OFFSET_MM = 50.0
     stirrup_end_offset = convert_mm_to_feet(STIRRUP_END_OFFSET_MM)
@@ -1139,25 +1216,28 @@ if selected_beam:
         t.Start()
         DOC.Regenerate()
 
-        # generate_rebars(DOC, selected_beam, bottom_bars, sect_up)
-        # generate_rebars(DOC, selected_beam, top_bars, sect_up)
+        generate_rebars(DOC, selected_beam, bottom_bars, sect_up)
+        generate_rebars(DOC, selected_beam, top_bars, sect_up)
         
-        # if create_side_bars:
-        #     generate_rebars(DOC, selected_beam, left_side_bars_lines, sect_up)
-        #     generate_rebars(DOC, selected_beam, right_side_bars_lines, sect_up)
+        if create_side_bars:
+            generate_rebars(DOC, selected_beam, left_side_bars_lines, sect_up)
+            generate_rebars(DOC, selected_beam, right_side_bars_lines, sect_up)
         
-        # create_stirrups(
-        #     DOC, selected_beam, true_center, axis, sect_right, sect_up,
-        #     length, stirrup_end_offset, l1, l2, support_step, span_step,
-        #     get_rebar_shape_by_name(DOC, "Х_51"), stirrup_bar_type,
-        # )
-
+        """
+        create_stirrups(
+            DOC, selected_beam, true_center, axis, sect_right, sect_up,
+            length, stirrup_end_offset, l1, l2, support_step, span_step,
+            get_rebar_shape_by_name(DOC, "Х_51"), stirrup_bar_type,
+        )
+        """
+        
         create_all_stirrup_sets(
-            DOC, selected_beam, true_center, axis, 
+            DOC, selected_beam, shape, true_center, axis, 
             sect_right, sect_up, length, stirrup_end_offset, 
             l1, l2, support_step, span_step, stirrup_bar_type, 
             d_stirrup, b, h, c_side, c_top, c_bottom
         )
+        
 
         t.Commit()
 

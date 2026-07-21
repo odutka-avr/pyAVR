@@ -93,11 +93,22 @@
                 <StackPanel>
                     <TextBlock Text="Нижня поздовжня арматура" Style="{StaticResource SectionHeader}"/>
 
-                    <TextBlock Text="Ліва грань" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
-                    <StackPanel x:Name="LowerRebarsPanel"/>
+                    <!-- 1.1 Кутовий стержень (симетричний, без стрілок/видалення) -->
+                    <TextBlock Text="Кутовий стержень" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="LowerCornerRebarCombo" Width="220" HorizontalAlignment="Left"/>
 
-                    <TextBlock Text="Права грань" Style="{StaticResource SubLabel}"/>
-                    <Button x:Name="AddLowerRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddLowerRebar_Click"/>
+                    <!-- 1.2 Чекбокс "Додати стержні між кутовими" -->
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <TextBlock Text="Додати стержні між кутовими" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="LowerIntermediateCheckBox" VerticalAlignment="Center" Margin="10,0,0,0"
+                                  Checked="LowerIntermediateCheckBox_Checked" Unchecked="LowerIntermediateCheckBox_Unchecked"/>
+                    </StackPanel>
+
+                    <!-- 1.3 Проміжні стержні (умовно видимі) -->
+                    <StackPanel x:Name="LowerIntermediateContainer" Visibility="Collapsed" Margin="0,12,0,0">
+                        <StackPanel x:Name="LowerRebarsPanel"/>
+                        <Button x:Name="AddLowerRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddLowerRebar_Click"/>
+                    </StackPanel>
 
                     <Grid Style="{StaticResource OffsetRow}">
                         <Grid.ColumnDefinitions>
@@ -115,11 +126,22 @@
                 <StackPanel>
                     <TextBlock Text="Верхня поздовжня арматура" Style="{StaticResource SectionHeader}"/>
 
-                    <TextBlock Text="Ліва грань" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
-                    <StackPanel x:Name="UpperRebarsPanel"/>
+                    <!-- 1.1 Кутовий стержень (симетричний, без стрілок/видалення) -->
+                    <TextBlock Text="Кутовий стержень" Style="{StaticResource SubLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="UpperCornerRebarCombo" Width="220" HorizontalAlignment="Left"/>
 
-                    <TextBlock Text="Права грань" Style="{StaticResource SubLabel}"/>
-                    <Button x:Name="AddUpperRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddUpperRebar_Click"/>
+                    <!-- 1.2 Чекбокс "Додати стержні між кутовими" -->
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <TextBlock Text="Додати стержні між кутовими" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="UpperIntermediateCheckBox" VerticalAlignment="Center" Margin="10,0,0,0"
+                                  Checked="UpperIntermediateCheckBox_Checked" Unchecked="UpperIntermediateCheckBox_Unchecked"/>
+                    </StackPanel>
+
+                    <!-- 1.3 Проміжні стержні (умовно видимі) -->
+                    <StackPanel x:Name="UpperIntermediateContainer" Visibility="Collapsed" Margin="0,12,0,0">
+                        <StackPanel x:Name="UpperRebarsPanel"/>
+                        <Button x:Name="AddUpperRebarBtn" Content="Додати стержень" Style="{StaticResource AddButton}" Click="AddUpperRebar_Click"/>
+                    </StackPanel>
 
                     <Grid Style="{StaticResource OffsetRow}">
                         <Grid.ColumnDefinitions>
@@ -132,7 +154,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- ================= SECTION 4: Конструктивні стержні ================= -->
+            <!-- ================= SECTION 4: Конструктивні стержні (без змін) ================= -->
             <Border Style="{StaticResource SectionBorder}">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">

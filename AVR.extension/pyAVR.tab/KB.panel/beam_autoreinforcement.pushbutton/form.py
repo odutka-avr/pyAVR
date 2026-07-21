@@ -44,12 +44,24 @@ def _star_col():
 
 class RebarRow:
 
+    """
+    Один рядок (бокс) списку проміжних стержнів: стрілки вгору/вниз,
+    combobox типу арматури, кнопка "Видалити".
+ 
+    is_corner_bar завжди False для рядків цього класу — кутовий стержень
+    (секція 1.1 у формі) не є екземпляром RebarRow, а окремим статичним
+    ComboBox, визначеним прямо в XAML (LowerCornerRebarCombo /
+    UpperCornerRebarCombo). Прапорець тут присутній лише для
+    узгодженості формату даних, що повертає get_data().
+    """
+
     REBAR_TYPES = None
 
     def __init__(self, rebar_panel, row_list, min_rows):
         self.rebar_panel = rebar_panel
         self.min_rows = min_rows
         self.row_list = row_list
+        self.is_corner_bar = False
 
         self.item = self._build_ui()
     
@@ -170,13 +182,16 @@ class RebarRow:
         self.row_list.remove(self)
     
     def get_data(self):
-        return {"rebar_type": self.rebar_combo.SelectedItem}
+        return {
+            "rebar_type": self.rebar_combo.SelectedItem,
+            "is_corner_bar": self.is_corner_bar,
+        }
 
 
 class Form(forms.WPFWindow):
 
-    BOTTOM_MIN_BARS = 2
-    TOP_MIN_BARS = 2
+    BOTTOM_MIN_BARS = 1
+    TOP_MIN_BARS = 1
     SIDE_MIN_BARS = 1
 
     def __init__(self, rebar_types, rebar_shapes):
@@ -192,21 +207,30 @@ class Form(forms.WPFWindow):
         self.bottom_bars = list()
         self.top_bars = list()
         self.side_bars = list()
+        
+        # заповнення кутових combobox-ів (секція 1.1, симетричні кутові стержні)
+        for key in sorted(self.rebar_types):
+            self.LowerCornerRebarCombo.Items.Add(key)
+        self.LowerCornerRebarCombo.SelectedIndex = 0
+ 
+        for key in sorted(self.rebar_types):
+            self.UpperCornerRebarCombo.Items.Add(key)
+        self.UpperCornerRebarCombo.SelectedIndex = 0
 
-        # filling in rebar types comboboxes
         for key in sorted(self.rebar_types):
             # key is name (string) of rebar type
             self.StirrupClassCombo.Items.Add(key)
         self.StirrupClassCombo.SelectedIndex = 0
 
-        # initial fill of rebar lists
-        # prefill bottom rebar list with 2 bars
-        self._add_row(self.LowerRebarsPanel, self.bottom_bars, self.BOTTOM_MIN_BARS)
-        self._add_row(self.LowerRebarsPanel, self.bottom_bars, self.BOTTOM_MIN_BARS)
 
-        # prefill top rebar list with 2 bars
-        self._add_row(self.UpperRebarsPanel, self.top_bars, self.TOP_MIN_BARS)
-        self._add_row(self.UpperRebarsPanel, self.top_bars, self.TOP_MIN_BARS)
+        # # initial fill of rebar lists
+        # # prefill bottom rebar list with 2 bars
+        # self._add_row(self.LowerRebarsPanel, self.bottom_bars, self.BOTTOM_MIN_BARS)
+        # self._add_row(self.LowerRebarsPanel, self.bottom_bars, self.BOTTOM_MIN_BARS)
+
+        # # prefill top rebar list with 2 bars
+        # self._add_row(self.UpperRebarsPanel, self.top_bars, self.TOP_MIN_BARS)
+        # self._add_row(self.UpperRebarsPanel, self.top_bars, self.TOP_MIN_BARS)
         
         # prefill side rebar list with 1 bar
         self._add_row(self.ConstructiveSideRebarPanel, self.side_bars, self.SIDE_MIN_BARS)
@@ -227,6 +251,28 @@ class Form(forms.WPFWindow):
     def AddConstructiveSideRebar_Click(self, sender, args):
         self._add_row(self.ConstructiveSideRebarPanel, self.side_bars, self.SIDE_MIN_BARS)
     
+
+    # ---- секція 1.2/1.3: нижня поздовжня арматура ----
+    def LowerIntermediateCheckBox_Checked(self, sender, args):
+        self.LowerIntermediateContainer.Visibility = Visibility.Visible
+        # автоматично створити один row з дефолтним типом при першому
+        # увімкненні (якщо список ще порожній)
+        if not self.bottom_bars:
+            self._add_row(self.LowerRebarsPanel, self.bottom_bars, self.BOTTOM_MIN_BARS)
+ 
+    def LowerIntermediateCheckBox_Unchecked(self, sender, args):
+        self.LowerIntermediateContainer.Visibility = Visibility.Collapsed
+ 
+    # ---- секція 1.2/1.3: верхня поздовжня арматура ----
+    def UpperIntermediateCheckBox_Checked(self, sender, args):
+        self.UpperIntermediateContainer.Visibility = Visibility.Visible
+        if not self.top_bars:
+            self._add_row(self.UpperRebarsPanel, self.top_bars, self.TOP_MIN_BARS)
+ 
+    def UpperIntermediateCheckBox_Unchecked(self, sender, args):
+        self.UpperIntermediateContainer.Visibility = Visibility.Collapsed
+
+
     def ConstructiveCheckBox_Checked(self, sender, args):
         self.ConstructiveSideRebarListsContainer.Visibility = Visibility.Visible
 
@@ -241,7 +287,66 @@ class Form(forms.WPFWindow):
     def collect_data(self):
         def rows_to_list(rows):
             return [r.get_data() for r in rows]
+        
+        def corner_and_intermediate_to_list(corner_combo, intermediate_checkbox, intermediate_rows):
+            """
+            Формує список bars для секцій нижньої/верхньої поздовжньої
+            арматури за правилом:
+                [кутовий, *проміжні (якщо чекбокс увімкнений), кутовий]
+ 
+            Якщо чекбокс вимкнений — проміжні rows НЕ додаються в список,
+            незалежно від того, чи є в них дані (навіть якщо користувач
+            раніше додав/налаштував проміжні стержні, а потім зняв
+            чекбокс — вони не потрапляють у результат).
+            """
+            corner_type = corner_combo.SelectedItem
+ 
+            corner_entry_start = {"rebar_type": corner_type, "is_corner_bar": True}
+            corner_entry_end = {"rebar_type": corner_type, "is_corner_bar": True}
+ 
+            bars = [corner_entry_start]
+ 
+            if intermediate_checkbox.IsChecked:
+                for row in intermediate_rows:
+                    bars.append(row.get_data())
+ 
+            bars.append(corner_entry_end)
+            return bars
+ 
+        data = {
+            "protective_layer": {
+                "c_top": self.CTopBox.Text,
+                "c_bottom": self.CBottomBox.Text,
+                "c_side": self.CSideBox.Text,
+            },
+            "bottom_longitudinal": {
+                "bars": corner_and_intermediate_to_list(
+                    self.LowerCornerRebarCombo, self.LowerIntermediateCheckBox, self.bottom_bars
+                ),
+                "end_offset": self.BottomOffsetBox.Text,
+            },
+            "upper_longitudinal": {
+                "bars": corner_and_intermediate_to_list(
+                    self.UpperCornerRebarCombo, self.UpperIntermediateCheckBox, self.top_bars
+                ),
+                "end_offset": self.TopOffsetBox.Text,
+            },
+            "side_longitudinal": {
+                "enabled": bool(self.ConstructiveCheckBox.IsChecked),
+                "bars": rows_to_list(self.side_bars),
+                "end_offset": self.SideOffsetBox.Text,
+            },
+            "stirrups": {
+                "rebar_type":  self.StirrupClassCombo.SelectedItem,
+                "span_zone_step": self.SpanStepBox.Text,
+                "support_zone_step": self.SupportStepBox.Text,
+                "l1": self.L1Box.Text,
+                "l2": self.L2Box.Text,
+            },
+        }
+        return data
 
+        """
         data = {
             "protective_layer": {
                 "c_top": self.CTopBox.Text,
@@ -270,6 +375,7 @@ class Form(forms.WPFWindow):
             },
         }
         return data
+        """
 
     def PushData_Click(self, sender, args):      
         try:
