@@ -18,7 +18,7 @@ import math
 
 # local custom imports
 from form import Form
-from value_conversion import convert_feet_to_mm, convert_mm_to_feet
+from value_conversion import convert_feet_to_mm, convert_mm_to_feet, convert_feet_to_m
 
 # ========================================================================
 DOC = revit.doc
@@ -103,12 +103,13 @@ def read_justification_data(beam):
 
 def compute_v0(z_just, off_z, h):
     if z_just == "Top":
-        v0 = -h / 2.0
-        if off_z < 0:
-            v0 += off_z
-        else:
-            v0 -= off_z
-        return v0
+        # v0 = -h / 2.0
+        # if off_z < 0:
+        #     v0 += off_z
+        # else:
+        #     v0 -= off_z
+        # return v0
+        return -h / 2.0 + off_z
 
     elif z_just == "Bottom":
         v0 = h / 2.0
@@ -852,13 +853,25 @@ def create_stirrup_zone_set(
         curve_list.Add(c)
 
     if shape:
+
+        
+        logger.debug("ZONE START POINT - X: {}, Y: {}, Z: {}".format(convert_feet_to_m(zone_start_point.X), 
+                                                                        convert_feet_to_m(zone_start_point.Y), 
+                                                                        convert_feet_to_m(zone_start_point.Z)))
+        
+
         global_origin = (
             zone_start_point
             + sect_right * local_origin_xy.X
             + sect_up * local_origin_xy.Y
         )
-        width = b - c_side * 2 - d_stirrup_own
-        height = h - c_top - c_bottom - d_stirrup_own
+
+        logger.debug("GLOBAL STIRRUP ORIGIN - X: {}, Y: {}, Z: {}".format(convert_feet_to_m(global_origin.X), 
+                                                                        convert_feet_to_m(global_origin.Y), 
+                                                                        convert_feet_to_m(global_origin.Z)))
+
+        width = b - c_side * 2
+        height = h - c_top - c_bottom
 
         rebar = Rebar.CreateFromRebarShape(
             doc,
@@ -875,6 +888,17 @@ def create_stirrup_zone_set(
 
         doc.Regenerate()
 
+        logger.debug(rebar)
+
+        accessor = rebar.GetShapeDrivenAccessor()
+        accessor.SetLayoutAsNumberWithSpacing(
+            number_of_positions,
+            step,
+            False,
+            include_first_bar,
+            include_last_bar,
+        )
+
     else:
         rebar = Rebar.CreateFromCurves(
             doc,
@@ -890,16 +914,16 @@ def create_stirrup_zone_set(
             True,
         )
 
-    logger.debug(rebar)
+        logger.debug(rebar)
 
-    accessor = rebar.GetShapeDrivenAccessor()
-    accessor.SetLayoutAsNumberWithSpacing(
-        number_of_positions,
-        step,
-        False,
-        include_first_bar,
-        include_last_bar,
-    )
+        accessor = rebar.GetShapeDrivenAccessor()
+        accessor.SetLayoutAsNumberWithSpacing(
+            number_of_positions,
+            step,
+            True,
+            include_first_bar,
+            include_last_bar,
+        )
 
     return rebar
  
@@ -931,40 +955,21 @@ def create_all_stirrup_sets(
     c_bottom,
 ):
     """
-    Створює хомути балки як ТРИ окремі Rebar-масиви (Sets):
-        1. приопорна зона біля початку балки (довжина l1, крок support_step)
-        2. прогінна зона (довжина length - 2*end_offset - l1 - l2, крок span_step)
-        3. приопорна зона біля кінця балки (довжина l2, крок support_step)
+    Створює хомути балки як ТРИ окремі Rebar-масиви (Sets).
 
-    Межові хомути між зонами не дублюються і не пропускаються: рівно
-    одна із двох сусідніх зон "бере на себе" створення хомута на
-    спільній межі (include_first_bar=True), а інша її пропускає
-    (include_last_bar=False) — інакше або отримаємо дублікат, або
-    хомут на межі взагалі не з'явиться.
+    Якщо задано shape — точка вставки (origin) заздалегідь компенсується
+    так, щоб після зміни ADSK_A_bent/ADSK_B_bent (яка рухає протилежний
+    origin-у кут форми — емпірично підтверджено: верхній правий,
+    якщо вставка в нижній лівий) хомут опинявся точно в розрахованому
+    місці без додаткового переміщення після створення.
 
+    Межові хомути між зонами не дублюються і не пропускаються:
         zone1 (l1):     include_first=True,  include_last=False
         zone2 (прогін):  include_first=True,  include_last=False
         zone3 (l2):     include_first=True,  include_last=True
 
-    Args:
-        doc (Document): активний документ Revit.
-        beam (FamilyInstance): балка-хост.
-        shape (RebarShape або None): іменована форма хомута; якщо
-            None — використовується геометричний fallback у
-            create_stirrup_zone_set().
-        true_start (XYZ): центр перерізу балки на початку
-            (з compute_true_section_center_at_start()).
-        axis (XYZ): нормалізований напрямок балки.
-        sect_right, sect_up (XYZ): локальний базис перерізу.
-        length (float): довжина балки, фути.
-        end_offset (float): відступ першого/останнього хомута від
-            торців балки (50мм у футах).
-        l1, l2 (float): довжини приопорних зон, фути.
-        support_step, span_step (float): бажані кроки хомутів, фути.
-        bar_type (RebarBarType): тип арматури хомутів.
-        d_stirrup_own (float): діаметр хомута, фути.
-        b, h (float): розміри перерізу балки, фути.
-        c_side, c_top, c_bottom (float): захисний шар, фути.
+    Args: див. попередню версію docstring — без змін у переліку
+        параметрів, окрім внутрішньої логіки компенсації origin.
 
     Returns:
         list[Rebar]: три елементи-масиви, у порядку [зона l1, прогінна
@@ -995,18 +1000,55 @@ def create_all_stirrup_sets(
                    convert_feet_to_mm(c.Y),
                    convert_feet_to_mm(c.Z)) for c in outline_local])
 
-    # локальна точка origin (лівий нижній кут перерізу хомута) —
-    # рахується ОДИН РАЗ тут, до циклу по зонах, і передається далі
-    # незмінною в кожен виклик create_stirrup_zone_set
-    local_origin_x = -b / 2.0 + c_side
-    local_origin_y = -h / 2.0 + c_bottom
-    local_origin_xy = XYZ(local_origin_x, local_origin_y, 0.0)
+    # ---- крок 3: нескомпенсована локальна точка вставки (лівий нижній кут) ----
+    local_origin_x = -b / 2.0 + c_side + d_stirrup_own
+    local_origin_y = -h / 2.0 + c_bottom + d_stirrup_own
 
-    logger.debug("LOCAL ORIGIN XY (mm): ({0}, {1})".format(
+    logger.debug("LOCAL ORIGIN XY, без компенсації (mm): ({0}, {1})".format(
         convert_feet_to_mm(local_origin_x), convert_feet_to_mm(local_origin_y)
     ))
 
-    # виправлено: раніше zone2_start/zone3_start не враховували end_offset
+    # ---- крок 2: цільові розміри хомута під конкретну балку ----
+    target_width = b - c_side * 2 - d_stirrup_own
+    target_height = h - c_top - c_bottom - d_stirrup_own
+
+    if shape:
+        # ---- крок 1: дефолтні розміри читаються з ФОРМИ (RebarShape),
+        # не з типу арматури — рахується один раз, форма одна на всі 3 зони ----
+        default_stirrup_b = shape.LookupParameter("ADSK_A_bent").AsDouble()
+        default_stirrup_h = shape.LookupParameter("ADSK_B_bent").AsDouble()
+
+        # ---- крок 4: компенсація точки вставки ----
+        # діаметр (d_stirrup_own) навмисно НЕ додається в offset — за
+        # потреби буде додано окремо після тестування
+        offset_x = abs(default_stirrup_b - target_width)
+        offset_y = abs(default_stirrup_h - target_height)
+
+        comp_x = (
+            local_origin_x - offset_x if default_stirrup_b > target_width
+            else local_origin_x + offset_x
+        )
+        comp_y = (
+            local_origin_y - offset_y if default_stirrup_h > target_height
+            else local_origin_y + offset_y
+        )
+
+        local_origin_xy = XYZ(comp_x, comp_y, 0.0)
+
+        logger.debug("DEFAULT SHAPE SIZE (mm): b={0}, h={1}".format(
+            convert_feet_to_mm(default_stirrup_b), convert_feet_to_mm(default_stirrup_h)
+        ))
+        logger.debug("TARGET SIZE (mm): width={0}, height={1}".format(
+            convert_feet_to_mm(target_width), convert_feet_to_mm(target_height)
+        ))
+        logger.debug("COMPENSATED LOCAL ORIGIN XY (mm): ({0}, {1})".format(
+            convert_feet_to_mm(comp_x), convert_feet_to_mm(comp_y)
+        ))
+    else:
+        # fallback-гілка не використовує local_origin_xy взагалі
+        # (будує контур напряму з outline_local), компенсація не потрібна
+        local_origin_xy = XYZ(local_origin_x, local_origin_y, 0.0)
+
     zone1_start = end_offset
     zone2_start = end_offset + l1
     zone3_start = end_offset + l1 + middle_length
@@ -1131,7 +1173,11 @@ if selected_beam:
     d_stirrup = r_types.get(usr_input["stirrups"]["rebar_type"]).get_Parameter(BuiltInParameter.REBAR_BAR_DIAMETER).AsDouble()
     stirrup_bar_type = r_types.get(usr_input["stirrups"]["rebar_type"])
     stirrup_shape_name = "Х_51"
-    shape = get_rebar_shape_by_name(DOC, stirrup_shape_name)
+    try:
+        shape = get_rebar_shape_by_name(DOC, stirrup_shape_name)
+    except ValueError as e:
+        logger.debug(str(e))
+        shape = None
 
     STIRRUP_END_OFFSET_MM = 50.0
     stirrup_end_offset = convert_mm_to_feet(STIRRUP_END_OFFSET_MM)
