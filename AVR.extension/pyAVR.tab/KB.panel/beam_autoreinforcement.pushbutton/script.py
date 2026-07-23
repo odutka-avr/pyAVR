@@ -1283,7 +1283,6 @@ if selected_beam:
             l1, l2, support_step, span_step, stirrup_bar_type, 
             d_stirrup, b, h, c_side, c_top, c_bottom
         )
-        
 
         t.Commit()
 
