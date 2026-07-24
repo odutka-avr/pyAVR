@@ -64,7 +64,7 @@
                             <ColumnDefinition Width="90"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="c top" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Grid.Column="0" Text="Верхній" Style="{StaticResource FieldLabel}"/>
                         <TextBox Grid.Column="1" x:Name="CTopBox" Style="{StaticResource NumBox}" Text="30"/>
                     </Grid>
 
@@ -73,7 +73,7 @@
                             <ColumnDefinition Width="90"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="c bottom" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Grid.Column="0" Text="Нижній" Style="{StaticResource FieldLabel}"/>
                         <TextBox Grid.Column="1" x:Name="CBottomBox" Style="{StaticResource NumBox}" Text="30"/>
                     </Grid>
 
@@ -82,7 +82,7 @@
                             <ColumnDefinition Width="90"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="c side" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Grid.Column="0" Text="Боковий" Style="{StaticResource FieldLabel}"/>
                         <TextBox Grid.Column="1" x:Name="CSideBox" Style="{StaticResource NumBox}" Text="30"/>
                     </Grid>
                 </StackPanel>

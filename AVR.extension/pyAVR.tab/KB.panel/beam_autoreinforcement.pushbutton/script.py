@@ -469,15 +469,6 @@ def map_local_points_to_global_lines(bars, true_start, axis, sect_right, sect_up
         for bar in bars
     ]
 
-def _get_r_type_element(r_type_str_name, r_types):
-    return r_types.get(r_type_str_name)
-
-def _get_d_value(r_type):
-    return r_type.get_Parameter(BuiltInParameter.REBAR_BAR_DIAMETER).AsDouble()
-
-def _get_d_value_mm(d_ft):
-    return convert_feet_to_mm(d_ft)
-
 def _debug_convert_ft_coords_to_mm(bars):
     lst = list()
     for bar in bars:
