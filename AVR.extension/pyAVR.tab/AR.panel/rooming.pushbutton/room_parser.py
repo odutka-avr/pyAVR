@@ -3,10 +3,13 @@
 # ====== IMPORTS =========================================================
 import clr
 clr.AddReference("RevitAPI")
-from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory
+from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, BuiltInParameter
 
 # local custom imports
 from rooms import Room_wrapper, Apartment
+
+from pyrevit import script
+logger = script.get_logger()
 
 # ========================================================================
 
@@ -43,6 +46,7 @@ class Room_parser:
         # containers for available rooms and apartments
         self.room_data = None
         self.apartment_data = None
+        self.apartment_data = None
 
         # containers for available room data for future display
         self.available_room_types = None
@@ -62,8 +66,46 @@ class Room_parser:
         self.available_building_section_numbers = None
 
         self.room_data = None
+        self.room_data_dict = None
         self.apartment_data = None
 
+    def parse_doors(self, do_name):
+        doors_collector = FilteredElementCollector(self.doc).OfCategory(BuiltInCategory.OST_Doors).WhereElementIsNotElementType()
+        # get rid of shared nested instances
+        doors = [d for d in doors_collector if d.SuperComponent is None]
+        
+        doors_to_return = list()
+        for d in doors:
+            d_do = d.DesignOption
+            
+            if d_do:
+                d_do_name = d_do.Name
+            else:
+                d_do_name = "Main model"
+
+            if d_do_name == do_name:
+                doors_to_return.append(d)
+        return doors_to_return
+    
+    def parse_low_windows(self, do_name):
+        windows_collector = FilteredElementCollector(self.doc).OfCategory(BuiltInCategory.OST_Windows).WhereElementIsNotElementType()
+        # get rid of shared nested instances
+        windows = [win for win in windows_collector if win.SuperComponent is None]
+
+        low_windows = list()
+        for w in windows:
+            w_do = w.DesignOption
+            
+            if w_do:
+                w_do_name = w_do.Name
+            else:
+                w_do_name = "Main model"
+
+            if w_do_name == do_name:
+                if w.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM).AsDouble() <= 0:
+                    low_windows.append(w)
+
+        return low_windows
 
     def parse_rooms(self, do_name):
         """
@@ -93,6 +135,7 @@ class Room_parser:
         rooms = FilteredElementCollector(self.doc).OfCategory(BuiltInCategory.OST_Rooms)
         
         rooms_data = list()
+        room_data_dict = dict()
         apartment_data = dict()
 
         available_room_types = set()
@@ -112,6 +155,7 @@ class Room_parser:
                 wr_room = Room_wrapper(room, self.doc)
 
                 rooms_data.append(wr_room)
+                room_data_dict[room.Id.ToString] = wr_room
                 available_room_types.add(wr_room.room_type)
 
                 # don't add [None] values
@@ -148,6 +192,7 @@ class Room_parser:
         
         if rooms_data:
             self.room_data = rooms_data
+            self.room_data_dict = room_data_dict
         
         if apartment_data:
             self.apartment_data = apartment_data

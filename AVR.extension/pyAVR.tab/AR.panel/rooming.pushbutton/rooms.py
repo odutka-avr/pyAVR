@@ -3,14 +3,18 @@
 # ====== IMPORTS =========================================================
 import clr
 clr.AddReference("RevitAPI")
-from Autodesk.Revit.DB import (BuiltInCategory,  
+from Autodesk.Revit.DB import (BuiltInCategory,
+                               BuiltInParameter,  
                                SpatialElementBoundaryOptions,
                                Wall,
                                WallKind)
 
 # local imports
 from shared_parameters import Shared_parameters
-from value_conversion import convert_feet_to_mm, convert_sq_feet_to_sq_m, set_sq_meters
+from value_conversion import convert_feet_to_mm, convert_sq_feet_to_sq_m, set_sq_meters, convert_feet_to_m
+
+from pyrevit import revit, script
+logger = script.get_logger()
 
 # =======================================================================
 
@@ -42,6 +46,8 @@ class Apartment:
         self.total_area_w_coef_fn_lr = 0    # area with coef and finish layer applied
         self.inner_area_w_coef_fn_lr = 0    # area of inner rooms (type 1, 2) with coef and finish layer applied
         self.living_area_w_coef_fn_lr = 0   # living area with coef and finish layer applied
+
+        self.total_area_w_fn_lr_w_sills = 0 # area with area with finish layer applied only (no coef) + window/door sills (no coef)
     
     def add_room(self, room):
         """
@@ -88,6 +94,9 @@ class Apartment:
             # add to inner apartment area
             if (room.room_type == 1) or (room.room_type == 2):
                 self.inner_area_w_coef_fn_lr += room.area_w_coef_finish_layer
+            
+            # form window sills and doorsteps areas for apartment
+            self.total_area_w_fn_lr_w_sills += room.area_w_finish_layer_w_window_door_sills
     
     
     def __clear_areas(self):
@@ -96,6 +105,7 @@ class Apartment:
         self.total_area_w_coef_fn_lr = 0
         self.inner_area_w_coef_fn_lr = 0
         self.living_area_w_coef_fn_lr = 0
+        self.total_area_w_fn_lr_w_sills = 0
 
     def get_round_area_liv(self, round_by):
         """
@@ -136,6 +146,9 @@ class Apartment:
             round_by (int): Number of decimal places.
         """
         return set_sq_meters(round(self.inner_area_w_coef_fn_lr, round_by))
+    
+    def get_round_area_total_w_fn_lr_w_sills(self, round_by):
+        return set_sq_meters(round(self.total_area_w_fn_lr_w_sills, round_by))
 
     
     def __str__(self):
@@ -186,6 +199,12 @@ class Room_wrapper:
         self.area_default = self.__get_area()   # raw area
         self.area_w_finish_layer = 0            # area without applied coef
         self.area_w_coef_finish_layer = 0       # area with coef and finish layer
+
+        # room from doors
+        self.doors = list()
+
+        # room from windows
+        self.windows = list()
     
 
     def set_coef(self, coef):
@@ -221,6 +240,14 @@ class Room_wrapper:
             finish_layer_area         -- area occupied by finish layer in m²
             area_w_finish_layer       -- area_default minus finish_layer_area
             area_w_coef_finish_layer  -- area_w_finish_layer multiplied by coef
+
+            area_low_windows_sill     -- window sills area that have sill elevation <= 0
+            area_doors_doorstep       -- doorstep area
+
+            area_w_coef_low_windows_sill
+            area_w_coef_doors_doorstep
+
+            area_w_finish_layer_w_window_door_sills
         """
         # calculate and set finish layer area
         self.finish_layer_area = self.__get_finish_layer_area()
@@ -230,7 +257,49 @@ class Room_wrapper:
         
         # set param - area with coef and finish layer
         self.area_w_coef_finish_layer = self.area_w_finish_layer * self.coef
+
+        # calculate door and window doorstep (sill) area
+        self.area_low_windows_sill = self._calculate_area_low_window_sills()
+        self.area_doors_doorstep = self._calculate_area_door_doorsteps()
+
+        self.area_w_coef_low_windows_sill = self.area_low_windows_sill * self.coef
+        self.area_w_coef_doors_doorstep = self.area_doors_doorstep * self.coef
+
+        self.area_w_finish_layer_w_window_door_sills = self.area_w_finish_layer + self.area_low_windows_sill + self.area_doors_doorstep
+
     
+    def _calculate_area_low_window_sills(self):
+        total_area = 0
+        for w in self.windows:
+            rough_width = convert_feet_to_m(w.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            logger.debug("room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
+            host_width = convert_feet_to_m(w.Host.Width)
+            logger.debug("room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
+            frame_depth = convert_feet_to_m(w.Symbol.LookupParameter("Товщина рами").AsDouble())
+            logger.debug("room: {}, FRAME THICKNESS: {}".format(self.room_number, frame_depth))
+            total_area += rough_width * (host_width - frame_depth)
+            logger.debug("room: {}, AREA: {}".format(self.room_number, total_area))
+        return total_area
+
+    def _calculate_area_door_doorsteps(self):
+        total_area = 0
+        for d in self.doors:
+            rough_width = convert_feet_to_m(d.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            logger.debug("room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
+            host_width = convert_feet_to_m(d.Host.Width)
+            logger.debug("room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
+            total_area += rough_width * host_width
+            logger.debug("room: {}, AREA: {}".format(self.room_number, total_area))
+        return total_area
+
+    def get_round_area_low_window_sills(self, round_by):
+        return set_sq_meters(round(self.area_low_windows_sill, round_by))
+    
+    def get_round_area_door_doorsteps(self, round_by):
+        return set_sq_meters(round(self.area_doors_doorstep, round_by))
+    
+    def get_round_area_w_finish_layer_w_window_door_sills(self, round_by):
+        return set_sq_meters(round(self.area_w_finish_layer_w_window_door_sills, round_by))
 
     def get_round_area_w_coef_fn_lr(self, round_by):
         """
@@ -351,10 +420,12 @@ class Room_wrapper:
     
     
     def __str__(self):
-        return "r_number: {}, r_type: {}, r_category: {}".format(
+        return "r_number: {}, r_type: {}, r_category: {}, from_doors: {}, from_windows: {}".format(
             self.room_number, 
             self.room_type, 
-            self.room_category)
+            self.room_category,
+            self.doors, 
+            self.windows)
     
 
     def __repr__(self):

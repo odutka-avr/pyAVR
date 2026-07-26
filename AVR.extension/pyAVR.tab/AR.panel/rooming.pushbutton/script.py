@@ -123,6 +123,7 @@ def get_model_path(doc):
 
 # get current document
 DOC = revit.doc
+PHASE = list(DOC.Phases)[-1]
 
 
 # get path do DOC's filepath
@@ -177,6 +178,30 @@ rooms = room_parser.room_data
 aparts = room_parser.apartment_data
 
 
+# parse windows and doors using choen design option
+doors = room_parser.parse_doors(usr_do[1].name)
+low_windows = room_parser.parse_low_windows(usr_do[1].name)
+
+logger.debug("DOORS: {}".format(doors))
+logger.debug("LOW WINDOWS: {}".format(low_windows))
+
+# assign doors and windows to rooms
+# assign doors
+for d in doors:
+    # get from room
+    room_el = d.get_FromRoom(PHASE)
+    if room_el and room_el.Id.ToString in room_parser.room_data_dict:
+        rwrapper = room_parser.room_data_dict[room_el.Id.ToString]
+        rwrapper.doors.append(d)
+
+for w in low_windows:
+    # get from room
+    room_el = w.get_FromRoom(PHASE)
+    if room_el and room_el.Id.ToString in room_parser.room_data_dict:
+        rwrapper = room_parser.room_data_dict[room_el.Id.ToString]
+        rwrapper.windows.append(w)
+
+
 # set all Room_wraper and Apartment instances with user-provided inputs
 for room_wr in rooms:
     # set room coef
@@ -228,6 +253,10 @@ for room in rooms:
     apt_number_type1_rooms = room.apartment.number_of_rooms_type1
     room.room_el.get_Parameter(Shared_parameters.NUMBER_OF_ROOMS).Set(apt_number_type1_rooms)
 
+    # set apartment total area with doorstep and window sills areas (no coefs)
+    apt_total_area_w_sills = room.apartment.get_round_area_total_w_fn_lr_w_sills(usr_round_by)
+    room.room_el.LookupParameter("AVR_Площа квартири з порогами").Set(apt_total_area_w_sills)
+
     # set room area coefficient
     room_area_coef = room.coef
     room.room_el.get_Parameter(Shared_parameters.AREA_COEFICIENT).Set(room_area_coef)
@@ -236,17 +265,39 @@ for room in rooms:
     room_area_coef_w_fn_lr = room.get_round_area_w_coef_fn_lr(usr_round_by)
     room.room_el.get_Parameter(Shared_parameters.ROOM_AREA_WITH_COEFFICIENT).Set(room_area_coef_w_fn_lr)
 
+    # set room area doorsteps
+    room_area_doorsteps = room.get_round_area_door_doorsteps(usr_round_by)
+    room.room_el.get_Parameter(Shared_parameters.ROOM_DOORSETP_AREA).Set(room_area_doorsteps)
+
+    # set room area windowsills that have sill elevation <= 0
+    room_area_windowsills = room.get_round_area_low_window_sills(usr_round_by)
+    room.room_el.get_Parameter(Shared_parameters.WINDOW_SILL_AREA).Set(room_area_windowsills)
+
+    # set total room area + sills (no coefs)
+    total_room_area_sills = room.get_round_area_w_finish_layer_w_window_door_sills(usr_round_by)
+    room.room_el.LookupParameter("AVR_Площа приміщення з порогами").Set(total_room_area_sills)
+
+    logger.debug("@"*100)
+    logger.debug(room)
     logger.debug("ROOM_NUM: {},\n" \
-                "ROOM_AREA_TOTAL: {},\n" \
+                "ROOM_AREA_TOTAL (COEF+FN_LR): {},\n" \
+                "-- ROOM_AREA_TOTAL_W_SILLS (NO COEF+FN_LR): {}, \n" \
+                "-- ROOM_AREA_DOORSTEPS (NO COEF): {}, \n" \
+                "-- ROOM_AREA_SILLS (NO COEF): {}, \n" \
                 "APART_NUM: {},\n" \
                 "APART_TOTAL_AREA: {},\n" \
                 "APART_INNER_AREA: {}, \n" \
-                "APRT_LIVING_AREA: {}".format(room.room_number, 
+                "APRT_LIVING_AREA: {}, \n" \
+                "-- APART_TOTAL_AREA_W_SILLS (NO COEF+FN_LR): {}".format(room.room_number, 
                                     room.area_w_coef_finish_layer,
+                                    room.area_w_finish_layer_w_window_door_sills,
+                                    room.area_doors_doorstep,
+                                    room.area_low_windows_sill,
                                     apt_number, 
                                     room.apartment.total_area_w_coef_fn_lr,
                                     room.apartment.inner_area_w_coef_fn_lr, 
-                                    room.apartment.living_area_w_coef_fn_lr))
+                                    room.apartment.living_area_w_coef_fn_lr,
+                                    room.apartment.total_area_w_fn_lr_w_sills))
 
 t.Commit()
 
