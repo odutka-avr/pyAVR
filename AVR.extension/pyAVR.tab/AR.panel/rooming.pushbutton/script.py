@@ -154,18 +154,21 @@ usr_type_coefs = form.type_coefficients
 usr_building_section_fn_lr_width = form.building_section_finish_lr_width
 usr_global_fn_lr_width = form.global_finish_lr_width
 usr_omitted_categories = form.omitted_categories or []
+usr_include_sills = form.include_sills_in_area
 
 logger.debug("usr_round_by: [{}],\n" \
             "usr_do: [{}],\n" \
             "usr_type_coefs: [{}],\n" \
             "usr_building_section_fn_lr_width: [{}],\n" \
             "usr_global_fn_lr_width: [{}],\n" \
-            "usr_omitted_categories: [{}]\n".format(usr_round_by,
+            "usr_omitted_categories: [{}],\n" \
+            "usr_include_sills: [{}]\n".format(usr_round_by,
                                                 usr_do,
                                                 usr_type_coefs,
                                                 usr_building_section_fn_lr_width,
                                                 usr_global_fn_lr_width,
-                                                usr_omitted_categories))
+                                                usr_omitted_categories,
+                                                usr_include_sills))
 
 
 # if user closes form without choosing DO, exit script
@@ -220,7 +223,7 @@ for room_wr in rooms:
             room_wr.set_finish_layer_width(usr_global_fn_lr_width)
     
     # calculate areas for the room
-    room_wr.calculate_area()
+    room_wr.calculate_area(usr_include_sills)
 
 
 # calculate apartments' areas after all room areas are set

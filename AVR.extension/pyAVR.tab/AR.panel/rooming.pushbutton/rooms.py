@@ -184,6 +184,7 @@ class Room_wrapper:
         self.apartment = None
 
         # rooms properties
+        self.name = self.__get_room_name()
         self.room_number = room_el.Number
         self.apartment_number = self.__get_apartment_number()
         self.room_type = self.__get_room_type()
@@ -229,17 +230,24 @@ class Room_wrapper:
         self.finish_layer_width = width
 
     
-    def calculate_area(self):
+    def calculate_area(self, include_sills=False):
         """
         Calculates and sets all area attributes based on current
         coef and finish_layer_width values.
 
         Must be called after set_coef() and set_finish_layer_width().
 
+        Args:
+            include_sills (bool): If True, window sill and door threshold
+                areas (weighted by coef) are added into
+                area_w_coef_finish_layer. Defaults to False.
+
         Sets:
             finish_layer_area         -- area occupied by finish layer in m²
             area_w_finish_layer       -- area_default minus finish_layer_area
-            area_w_coef_finish_layer  -- area_w_finish_layer multiplied by coef
+            area_w_coef_finish_layer  -- area_w_finish_layer multiplied by coef,
+                                          plus weighted sills/doorsteps if
+                                          include_sills is True
 
             area_low_windows_sill     -- window sills area that have sill elevation <= 0
             area_doors_doorstep       -- doorstep area
@@ -254,7 +262,7 @@ class Room_wrapper:
 
         # set param - defult area with finish layer
         self.area_w_finish_layer = self.area_default - self.finish_layer_area
-        
+
         # set param - area with coef and finish layer
         self.area_w_coef_finish_layer = self.area_w_finish_layer * self.coef
 
@@ -264,6 +272,10 @@ class Room_wrapper:
 
         self.area_w_coef_low_windows_sill = self.area_low_windows_sill * self.coef
         self.area_w_coef_doors_doorstep = self.area_doors_doorstep * self.coef
+
+        # optionally fold weighted sills/doorsteps into the weighted room area
+        if include_sills:
+            self.area_w_coef_finish_layer += (self.area_w_coef_low_windows_sill + self.area_w_coef_doors_doorstep)
 
         self.area_w_finish_layer_w_window_door_sills = self.area_w_finish_layer + self.area_low_windows_sill + self.area_doors_doorstep
 
@@ -417,6 +429,10 @@ class Room_wrapper:
                             target_lengths += convert_feet_to_mm(val_in_feet)
         
         return target_lengths
+
+
+    def __get_room_name(self):
+        return self.room_el.get_Parameter(BuiltInParameter.ROOM_NAME).AsString()
     
     
     def __str__(self):

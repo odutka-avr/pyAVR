@@ -11,7 +11,8 @@ from System.ComponentModel import INotifyPropertyChanged
 from rooming_cache import (prefill_building_sections,
                    prefill_global_width,
                    prefill_omitted_categories,
-                   prefill_room_types)
+                   prefill_room_types,
+                   prefill_include_sills)
 
 # ========================================================================
 
@@ -25,14 +26,19 @@ class Entry(INotifyPropertyChanged):
         key   (any): The underlying data key (e.g. room type int, building str).
         label (str): Display string shown in the form row.
     """
-    def __init__(self, key, label):
+    def __init__(self, key, label, names=[]):
         self.key = key
         self._label = label
+        self._names = names
     
     def get_Label(self):
         return self._label
 
+    def get_RoomNames(self):
+        return ", ".join(self._names)
+
     Label = property(get_Label)
+    RoomNames = property(get_RoomNames)
 
     def add_PropertyChanged(self, handler):
         pass
@@ -51,8 +57,8 @@ class EntryRow(Entry):
         label   (str): Display label.
         default (str): Default text value for the input field. Defaults to "1.0".
     """
-    def __init__(self, key, label, default="1.0"):
-        super(EntryRow, self).__init__(key, label)
+    def __init__(self, key, label, names, default="1.0"):
+        super(EntryRow, self).__init__(key, label, names)
         self._value = default
     
     def set_Value(self, value):
@@ -162,6 +168,7 @@ class RoomDataForm(forms.WPFWindow):
         self.building_section_finish_lr_width = None
         self.global_finish_lr_width = None
         self.omitted_categories = None
+        self.include_sills_in_area = False
 
 
     # ── helpers ──────────────────────────────────────────────────
@@ -252,7 +259,7 @@ class RoomDataForm(forms.WPFWindow):
         self._show(self.lbl_loading)
 
         # parse rooms via injected function
-        room_types, buildings, categories = self._room_parser.parse_rooms(self.chosen_do_name)
+        room_types, buildings, categories, names = self._room_parser.parse_rooms(self.chosen_do_name)
 
         self._hide(self.lbl_loading)
 
@@ -264,14 +271,18 @@ class RoomDataForm(forms.WPFWindow):
         # get cached data from previous runs
         previous_inputs = self._cache.get_for_design_option(self.chosen_do_name)
 
+        # get cached include-sills checkbox state
+        chk_state = prefill_include_sills(previous_inputs)
+        self.chk_include_sills.IsChecked = chk_state
+
         # get cached coefs
         prefilled_coefs = prefill_room_types(previous_inputs, room_types)
 
-
         # --- populate + show section 2: room types ---
         self.items_room_types.ItemsSource = ObservableCollection[EntryRow](
-                [EntryRow(rt, "Room Type: {}".format(rt), str(prefilled_coefs[rt])) for rt in sorted(list(prefilled_coefs.keys()))]
+                [EntryRow(rt, "Room Type: {}".format(rt), names[rt], str(prefilled_coefs[rt])) for rt in sorted(list(prefilled_coefs.keys()))]
             )
+        self._show(self.chk_include_sills)
         self._show(self.panel_room_types)
 
 
@@ -349,6 +360,9 @@ class RoomDataForm(forms.WPFWindow):
 
         # set round-by value
         self.round_by = int(self.slider_rounding.Value)
+
+        # set include-sills-in-area flag
+        self.include_sills_in_area = bool(self.chk_include_sills.IsChecked)
         
         # get tuple with do_set and do
         self.design_option = self._do_data[self.combo_do.SelectedItem]
@@ -415,7 +429,8 @@ class RoomDataForm(forms.WPFWindow):
             "room_types": {
                 str(r_type): coef for r_type, coef in self.type_coefficients.items()
             },
-            "omitted_categories": self.omitted_categories
+            "omitted_categories": self.omitted_categories,
+            "include_sills": self.include_sills_in_area
         }
 
         if self.building_section_finish_lr_width:

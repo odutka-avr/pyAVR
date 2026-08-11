@@ -46,12 +46,12 @@ class Room_parser:
         # containers for available rooms and apartments
         self.room_data = None
         self.apartment_data = None
-        self.apartment_data = None
 
         # containers for available room data for future display
         self.available_room_types = None
         self.available_room_categories = None
         self.available_building_section_numbers = None
+        self.available_room_names = None
 
 
     def __clear_params(self):
@@ -137,6 +137,7 @@ class Room_parser:
         rooms_data = list()
         room_data_dict = dict()
         apartment_data = dict()
+        available_room_names = dict()
 
         available_room_types = set()
         available_room_categories = set()
@@ -157,6 +158,11 @@ class Room_parser:
                 rooms_data.append(wr_room)
                 room_data_dict[room.Id.ToString] = wr_room
                 available_room_types.add(wr_room.room_type)
+
+                if not (wr_room.room_type in available_room_names):
+                    available_room_names[wr_room.room_type] = {wr_room.name}
+                else:
+                    available_room_names[wr_room.room_type].add(wr_room.name)
 
                 # don't add [None] values
                 if wr_room.room_category:
@@ -197,4 +203,7 @@ class Room_parser:
         if apartment_data:
             self.apartment_data = apartment_data
 
-        return self.available_room_types, self.available_building_section_numbers, self.available_room_categories
+        if available_room_names:
+            self.available_room_names = available_room_names
+
+        return self.available_room_types, self.available_building_section_numbers, self.available_room_categories, self.available_room_names

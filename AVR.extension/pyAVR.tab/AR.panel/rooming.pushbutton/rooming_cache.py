@@ -202,6 +202,11 @@ class RoomingCacheManager(object):
         """
         merged = {}
 
+        if "include_sills" in new_data:
+            merged["include_sills"] = new_data["include_sills"]
+        elif "include_sills" in existing:
+            merged["include_sills"] = existing["include_sills"]
+
         # room_types: keep old coefficients, add/overwrite with new values
         old_room_types = existing.get("room_types", {})
         new_room_types = new_data.get("room_types", {})
@@ -310,3 +315,10 @@ def prefill_omitted_categories(previous, fresh_categories):
     cached_omitted = set(previous.get("omitted_categories", []))
     # only pre-check categories that still exist in the model
     return cached_omitted.intersection(fresh_categories)
+
+
+def prefill_include_sills(previous):
+    """
+    Returns cached boolean state for including sills in room area, defaulting to False.
+    """
+    return bool(previous.get("include_sills", False))
