@@ -155,6 +155,12 @@ class Room_parser:
                 # create Room_wrapper instance
                 wr_room = Room_wrapper(room, self.doc)
 
+                if wr_room.area_default <= 0:
+                    # do not add unplaced rooms to lists
+                    # parameters of unplaced rooms can not be set
+                    # and there is no need to set them
+                    continue
+
                 rooms_data.append(wr_room)
                 room_data_dict[room.Id.ToString] = wr_room
                 available_room_types.add(wr_room.room_type)

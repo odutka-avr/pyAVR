@@ -436,8 +436,9 @@ class Room_wrapper:
     
     
     def __str__(self):
-        return "r_number: {}, r_type: {}, r_category: {}, from_doors: {}, from_windows: {}".format(
-            self.room_number, 
+        return "r_number: {}, r_area_default: {}, r_type: {}, r_category: {}, from_doors: {}, from_windows: {}".format(
+            self.room_number,
+            self.area_default, 
             self.room_type, 
             self.room_category,
             self.doors, 

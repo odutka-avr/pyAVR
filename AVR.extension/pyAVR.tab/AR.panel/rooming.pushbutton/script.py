@@ -180,6 +180,8 @@ if not usr_do:
 rooms = room_parser.room_data
 aparts = room_parser.apartment_data
 
+logger.debug("\n".join(rooms))
+
 
 # parse windows and doors using choen design option
 doors = room_parser.parse_doors(usr_do[1].name)
@@ -235,72 +237,78 @@ for apt in aparts.values():
 t = Transaction(DOC, "Rooming script: Setting parameters")
 t.Start()
 
-for room in rooms:
-    # set apartment number
-    apt_number = room.apartment.number
-    room.room_el.get_Parameter(Shared_parameters.APARTMENT_NUMBER).Set(apt_number)
+try:
+    for room in rooms:
+        # # set apartment number
+        # apt_number = room.apartment.number
+        # room.room_el.get_Parameter(Shared_parameters.APARTMENT_NUMBER).Set(apt_number)
 
-    # set apartment area total
-    apt_total_area = room.apartment.get_round_area_total_w_coef_fn_lr(usr_round_by)
-    room.room_el.get_Parameter(Shared_parameters.APARTMENT_TOTAL_AREA).Set(apt_total_area)
+        # set apartment area total
+        apt_total_area = room.apartment.get_round_area_total_w_coef_fn_lr(usr_round_by)
+        room.room_el.get_Parameter(Shared_parameters.APARTMENT_TOTAL_AREA).Set(apt_total_area)
 
-    # set apartment living area
-    apt_living_area = room.apartment.get_round_area_liv(usr_round_by)
-    room.room_el.get_Parameter(Shared_parameters.APARTMENT_LIVING_AREA).Set(apt_living_area)
+        # set apartment living area
+        apt_living_area = room.apartment.get_round_area_liv(usr_round_by)
+        room.room_el.get_Parameter(Shared_parameters.APARTMENT_LIVING_AREA).Set(apt_living_area)
 
-    # set apartment inner area (area of type 1,2 rooms)
-    apt_inner_area = room.apartment.get_round_area_inner_w_coef_fn_lr(usr_round_by)
-    room.room_el.get_Parameter(Shared_parameters.APARTMENT_INNER_AREA).Set(apt_inner_area)
+        # set apartment inner area (area of type 1,2 rooms)
+        apt_inner_area = room.apartment.get_round_area_inner_w_coef_fn_lr(usr_round_by)
+        room.room_el.get_Parameter(Shared_parameters.APARTMENT_INNER_AREA).Set(apt_inner_area)
 
-    # set apartment number of type 1 rooms (living)
-    apt_number_type1_rooms = room.apartment.number_of_rooms_type1
-    room.room_el.get_Parameter(Shared_parameters.NUMBER_OF_ROOMS).Set(apt_number_type1_rooms)
+        # set apartment number of type 1 rooms (living)
+        apt_number_type1_rooms = room.apartment.number_of_rooms_type1
+        room.room_el.get_Parameter(Shared_parameters.NUMBER_OF_ROOMS).Set(apt_number_type1_rooms)
 
-    # set apartment total area with doorstep and window sills areas (no coefs)
-    apt_total_area_w_sills = room.apartment.get_round_area_total_w_fn_lr_w_sills(usr_round_by)
-    room.room_el.LookupParameter("AVR_Площа квартири з порогами").Set(apt_total_area_w_sills)
+        # set apartment total area with doorstep and window sills areas (no coefs)
+        apt_total_area_w_sills = room.apartment.get_round_area_total_w_fn_lr_w_sills(usr_round_by)
+        room.room_el.LookupParameter("AVR_Площа квартири з порогами").Set(apt_total_area_w_sills)
 
-    # set room area coefficient
-    room_area_coef = room.coef
-    room.room_el.get_Parameter(Shared_parameters.AREA_COEFICIENT).Set(room_area_coef)
+        # set room area coefficient
+        room_area_coef = room.coef
+        room.room_el.get_Parameter(Shared_parameters.AREA_COEFICIENT).Set(room_area_coef)
 
-    # set room area with coeficient
-    room_area_coef_w_fn_lr = room.get_round_area_w_coef_fn_lr(usr_round_by)
-    room.room_el.get_Parameter(Shared_parameters.ROOM_AREA_WITH_COEFFICIENT).Set(room_area_coef_w_fn_lr)
+        # set room area with coeficient
+        room_area_coef_w_fn_lr = room.get_round_area_w_coef_fn_lr(usr_round_by)
+        room.room_el.get_Parameter(Shared_parameters.ROOM_AREA_WITH_COEFFICIENT).Set(room_area_coef_w_fn_lr)
 
-    # set room area doorsteps
-    room_area_doorsteps = room.get_round_area_door_doorsteps(usr_round_by)
-    room.room_el.get_Parameter(Shared_parameters.ROOM_DOORSETP_AREA).Set(room_area_doorsteps)
+        # set room area doorsteps
+        room_area_doorsteps = room.get_round_area_door_doorsteps(usr_round_by)
+        room.room_el.get_Parameter(Shared_parameters.ROOM_DOORSETP_AREA).Set(room_area_doorsteps)
 
-    # set room area windowsills that have sill elevation <= 0
-    room_area_windowsills = room.get_round_area_low_window_sills(usr_round_by)
-    room.room_el.get_Parameter(Shared_parameters.WINDOW_SILL_AREA).Set(room_area_windowsills)
+        # set room area windowsills that have sill elevation <= 0
+        room_area_windowsills = room.get_round_area_low_window_sills(usr_round_by)
+        room.room_el.get_Parameter(Shared_parameters.WINDOW_SILL_AREA).Set(room_area_windowsills)
 
-    # set total room area + sills (no coefs)
-    total_room_area_sills = room.get_round_area_w_finish_layer_w_window_door_sills(usr_round_by)
-    room.room_el.LookupParameter("AVR_Площа приміщення з порогами").Set(total_room_area_sills)
+        # set total room area + sills (no coefs)
+        total_room_area_sills = room.get_round_area_w_finish_layer_w_window_door_sills(usr_round_by)
+        room.room_el.LookupParameter("AVR_Площа приміщення з порогами").Set(total_room_area_sills)
 
-    logger.debug("@"*100)
-    logger.debug(room)
-    logger.debug("ROOM_NUM: {},\n" \
-                "ROOM_AREA_TOTAL (COEF+FN_LR): {},\n" \
-                "-- ROOM_AREA_TOTAL_W_SILLS (NO COEF+FN_LR): {}, \n" \
-                "-- ROOM_AREA_DOORSTEPS (NO COEF): {}, \n" \
-                "-- ROOM_AREA_SILLS (NO COEF): {}, \n" \
-                "APART_NUM: {},\n" \
-                "APART_TOTAL_AREA: {},\n" \
-                "APART_INNER_AREA: {}, \n" \
-                "APRT_LIVING_AREA: {}, \n" \
-                "-- APART_TOTAL_AREA_W_SILLS (NO COEF+FN_LR): {}".format(room.room_number, 
-                                    room.area_w_coef_finish_layer,
-                                    room.area_w_finish_layer_w_window_door_sills,
-                                    room.area_doors_doorstep,
-                                    room.area_low_windows_sill,
-                                    apt_number, 
-                                    room.apartment.total_area_w_coef_fn_lr,
-                                    room.apartment.inner_area_w_coef_fn_lr, 
-                                    room.apartment.living_area_w_coef_fn_lr,
-                                    room.apartment.total_area_w_fn_lr_w_sills))
+        
+        logger.debug("@"*100)
+        logger.debug(room)
+        logger.debug("ROOM_NUM: {},\n" \
+                    "ROOM_AREA_TOTAL (COEF+FN_LR): {},\n" \
+                    "-- ROOM_AREA_TOTAL_W_SILLS (NO COEF+FN_LR): {}, \n" \
+                    "-- ROOM_AREA_DOORSTEPS (NO COEF): {}, \n" \
+                    "-- ROOM_AREA_SILLS (NO COEF): {}, \n" \
+                    "APART_NUM: {},\n" \
+                    "APART_TOTAL_AREA: {},\n" \
+                    "APART_INNER_AREA: {}, \n" \
+                    "APRT_LIVING_AREA: {}, \n" \
+                    "-- APART_TOTAL_AREA_W_SILLS (NO COEF+FN_LR): {}".format(room.room_number, 
+                                        room.area_w_coef_finish_layer,
+                                        room.area_w_finish_layer_w_window_door_sills,
+                                        room.area_doors_doorstep,
+                                        room.area_low_windows_sill,
+                                        room.apartment_number, 
+                                        room.apartment.total_area_w_coef_fn_lr,
+                                        room.apartment.inner_area_w_coef_fn_lr, 
+                                        room.apartment.living_area_w_coef_fn_lr,
+                                        room.apartment.total_area_w_fn_lr_w_sills))
+
+except Exception as e:
+    t.RollBack()
+    logger.exception("Failed processing room {}".format(getattr(room, "room_number", "?")))
+    raise
 
 t.Commit()
-
