@@ -1,0 +1,39 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Інсоляція мас" Width="400" SizeToContent="Height"
+        ResizeMode="NoResize" WindowStartupLocation="CenterScreen">
+  <StackPanel Margin="16">
+    <TextBlock x:Name="tb_mode" FontWeight="Bold" FontSize="14"
+               Foreground="#666" Margin="0,0,0,10"/>
+
+    <TextBlock Text="Режим" FontWeight="Bold" FontSize="16" Margin="0,0,0,6"/>
+    <RadioButton x:Name="rb_mask" Content="Маска (кольорові поверхні)" IsChecked="True" />
+    <RadioButton x:Name="rb_pts" Content="Точки зі значеннями" Margin="0,4,0,0"/>
+
+    <TextBlock Text="Крок сітки, м" FontWeight="Bold" FontSize="16" Margin="0,14,0,4"/>
+    <TextBox x:Name="tb_grid" Text="1.0"/>
+
+    <TextBlock Text="Крок розрахунку променів, хв" FontWeight="Bold" Margin="0,14,0,4" FontSize="16"/>
+    <TextBlock Text="Коротший крок - довший розрахунок, але точніший результат" FontSize="12"/>
+    <ComboBox x:Name="cb_step" SelectedIndex="1">
+      <ComboBoxItem Content="60"/><ComboBoxItem Content="30"/><ComboBoxItem Content="15"/><ComboBoxItem Content="10"/><ComboBoxItem Content="5"/>
+    </ComboBox>
+
+    <!-- показується лише в режимі "За параметрами" -->
+    <StackPanel x:Name="param_panel">
+      <TextBlock Text="Оберіть необхідні значення значення AVR_Тип юніта:" FontWeight="Bold" Margin="0,14,0,4"/>
+      <ListBox x:Name="lb_values" Height="140" SelectionMode="Multiple"/>
+
+      <TextBlock Text="Оберіть необхідні значення значення AVR_Номер Секції:" FontWeight="Bold" Margin="0,14,0,4"/>
+      <ListBox x:Name="lb_values2" Height="140" SelectionMode="Multiple"/>
+
+      <TextBlock Text="Нічого не обрано = всі значення" FontSize="12" Foreground="#666" Margin="0,4,0,0"/>
+    </StackPanel>
+
+    <TextBlock x:Name="tb_info" Margin="0,14,0,0" Foreground="#666"/>
+    <Button x:Name="btn_run" Content="Розрахувати" Height="30" Margin="0,16,0,0"
+            Click="run_click"/>
+
+
+  </StackPanel>
+</Window>

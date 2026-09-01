@@ -1,0 +1,10 @@
+title:
+  Інсоляція
+
+layout:
+  - Window
+  - Window_1
+  - Mass
+  - InfoPanel
+ 
+collapsed: true
