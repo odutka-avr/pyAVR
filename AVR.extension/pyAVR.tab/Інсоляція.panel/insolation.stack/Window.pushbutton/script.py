@@ -1033,6 +1033,10 @@ def create_analysis_view():
             return None
         setup_analysis_view(view)
         t.Commit()
+    try:
+        revit.uidoc.ActiveView = view
+    except Exception:
+        pass
     return view
 
 

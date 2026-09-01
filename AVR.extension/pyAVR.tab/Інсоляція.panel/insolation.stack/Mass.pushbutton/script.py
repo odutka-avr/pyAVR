@@ -310,6 +310,10 @@ def create_analysis_view():
         setup_analysis_view(view)
         t.Commit()
     VIEW_CREATED[0] = True
+    try:
+        revit.uidoc.ActiveView = view
+    except Exception:
+        pass
     return view
 
 def face_normal(face, xform=None):
