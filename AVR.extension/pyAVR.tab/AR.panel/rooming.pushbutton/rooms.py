@@ -296,7 +296,12 @@ class Room_wrapper:
     def _calculate_area_door_doorsteps(self):
         total_area = 0
         for d in self.doors:
-            rough_width = convert_feet_to_m(d.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            #logger.debug("### DEBUG - room: {}, door: {}, param: {}".format(self.room_number, d.Id, d.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)))
+            try:
+                rough_width = convert_feet_to_m(d.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            except:
+                rough_width = convert_feet_to_m(d.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+
             logger.debug("room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
             host_width = convert_feet_to_m(d.Host.Width)
             logger.debug("room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
