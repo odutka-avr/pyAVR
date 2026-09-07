@@ -1,7 +1,7 @@
 layout:
-  - rooming
+  - insolation
   - apt_numbering
-  - room_params_check
+  - rooming
   - tep_generator
   - sheet_rename
   - sheet_renumber

@@ -1,0 +1,330 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Довідка — інсоляція" Height="720" Width="900"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI" FontSize="13" Background="#FFFFFF">
+  <Window.Resources>
+ 
+    <Style x:Key="PrimaryButton" TargetType="Button">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Background" Value="#2B7CB3"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border CornerRadius="6" Padding="14,7" Background="{TemplateBinding Background}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="#3592CF"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+ 
+    <Style x:Key="GhostButton" TargetType="Button">
+      <Setter Property="Foreground" Value="#0B3D5C"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border CornerRadius="6" Padding="14,7" Background="{TemplateBinding Background}"
+                    BorderBrush="#dde4eb" BorderThickness="1">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="#EEF4F8"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+ 
+    <Style TargetType="Expander">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
+      <Setter Property="Padding" Value="10,6,10,10"/>
+      <Setter Property="Background" Value="#FBFBFB"/>
+      <Setter Property="BorderBrush" Value="#f1f1f1"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+ 
+    <Style x:Key="SecTitle" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="#0B3D5C"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="SecGist" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#666666"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+      <Setter Property="Margin" Value="0,0,10,0"/>
+      <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
+    </Style>
+    <Style x:Key="Body" TargetType="TextBlock">
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Margin" Value="4,4,8,4"/>
+    </Style>
+    <Style x:Key="Bullet" TargetType="TextBlock">
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Margin" Value="14,2,8,2"/>
+    </Style>
+    <Style x:Key="Src" TargetType="Run">
+      <Setter Property="Foreground" Value="#6A6A6A"/>
+      <Setter Property="FontStyle" Value="Italic"/>
+    </Style>
+    <Style x:Key="Note" TargetType="Border">
+      <Setter Property="Background" Value="#e5eef7"/>
+      <Setter Property="BorderBrush" Value="#2B7CB3"/>
+      <Setter Property="BorderThickness" Value="4,0,0,0"/>
+      <Setter Property="Padding" Value="10,8"/>
+      <Setter Property="Margin" Value="4,6,8,6"/>
+    </Style>
+  </Window.Resources>
+ 
+  <Grid Margin="0">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+ 
+    <StackPanel Grid.Row="0" Margin="20,16,20,10">
+      <TextBlock Text="Розрахунок інсоляції — довідка" FontSize="20" FontWeight="Bold"/>
+      <Border Height="2" Background="#D0D0D0" Margin="0,8,0,12"/>
+      <StackPanel Orientation="Horizontal">
+        <Button Content="▼ Розгорнути все" Style="{StaticResource PrimaryButton}" Click="expand_all"/>
+        <Button Content="► Згорнути все" Style="{StaticResource GhostButton}" Click="collapse_all"/>
+      </StackPanel>
+    </StackPanel>
+ 
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20,0,20,16">
+      <StackPanel x:Name="sections">
+ 
+
+        
+        <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Інсоляція" FontSize="16" FontWeight="SemiBold" Foreground="#0B3D5C" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="  — Пряме сонячне опромінення поверхонь чи просторів." Style="{StaticResource SecGist}"/>
+        </Grid>
+        
+ 
+        <Expander Margin="0,10,0,8">
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Допущення в розрахунках" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — використання середнього сонячного часу, ігнорування клідматичних умов." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Body}">ДСТУ-Н Б В.2.2-27:2010 у пункті 5.1 визначає <Run FontWeight="Bold">середній сонячний час</Run>, а не за місцевий, для розрахунку інсоляції.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Середній сонячний час орієнтується до Сонця, а не до часового поясу.</Run> О 12:00 за сонячним часом Сонце строго на півдні (азимут 180°) і в найвищій точці. Годинник цього не гарантує: він єдиний для всього поясу, а Сонце над Львовом і над Луганськом стоїть по-різному.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Це дозволяє не враховувати перехід на літній час і меридіальні координати.</Run></TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">22 березня по 22 вересня</Run> - період нормування інсоляції</TextBlock>
+            <Border Style="{StaticResource Note}">
+            <TextBlock TextWrapping="Wrap">ДСТУ-Н Б В.2.2-27:2010 має примітку про те, що в розрахунку <Run FontWeight="Bold">приймається яксна погода і не враховуються зелені насадження.</Run></TextBlock>
+            </Border>
+          </StackPanel>
+        </Expander>
+ 
+        
+        <TextBlock Text="Нормативні вимоги до тривалості" FontSize="16" FontWeight="SemiBold" Foreground="#0B3D5C" Margin="2,14,0,4"/>
+
+        <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Житлові приміщення і території" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — не менше 2,5 год/добу безперервно." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Body}">Безперервна тривалість — <Run FontWeight="Bold">не менше 2,5 год/добу</Run>. <Run Style="{StaticResource Src}">(ДБН Б.2.2-12)</Run></TextBlock>
+            <TextBlock Style="{StaticResource Body}">Забезпеченість по квартирах:</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  1-, 2-, 3-кімнатні — не менше ніж в <Run FontWeight="Bold">одній</Run> кімнаті;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  4-, 5-кімнатні — не менше ніж у <Run FontWeight="Bold">двох</Run> кімнатах;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  6-кімнатні й більше — не менше ніж у <Run FontWeight="Bold">трьох</Run> кімнатах;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  гуртожитки — не менше <Run FontWeight="Bold">60 %</Run> спалень.</TextBlock>
+            <TextBlock Style="{StaticResource Body}">Території: 2,5 год — на дитячих ігрових і спортивних майданчиках житлових будинків.</TextBlock>
+          </StackPanel>
+        </Expander>
+ 
+        <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Громадські будівлі" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — не менше 3 год/добу в основних приміщеннях деяких закладів освіти, охорони здоров'я та відпочинку." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Body}">Безперервна тривалість — <Run FontWeight="Bold">не менше 3 год/добу</Run> для основних функціональних приміщень:</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  дитячі дошкільні заклади — гральні, групові <Run Style="{StaticResource Src}">(ДБН В.2.2-4)</Run>;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  загальноосвітні школи — класи <Run Style="{StaticResource Src}">(ДБН В.2.2-3)</Run>;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  школи-інтернати — класи, спальні <Run Style="{StaticResource Src}">(ДБН В.2.2-3)</Run>;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  заклади охорони здоров'я і відпочинку <Run Style="{StaticResource Src}">(ДБН В.2.2-10; ДСП 172-96)</Run>.</TextBlock>
+            <TextBlock Style="{StaticResource Body}">Території: 3 год — на групових майданчиках дошкільних закладів, у спортивній зоні та зоні відпочинку шкіл.</TextBlock>
+          </StackPanel>
+        </Expander>
+
+         <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Безперервна і переривчаста інсоляція" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — норми вказані для безперервної інсоляції; перерва допустима але вимагає довшої загальної тривалості." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+
+            <Border Style="{StaticResource Note}">
+                <TextBlock TextWrapping="Wrap"><Run FontWeight="Bold">7.6 </Run> Гігієнічний норматив інсоляції вважається виконаним, якщо тривалість інсоляції будь-якого окремого періоду інсоляції не менше нормативної тривалості безперервної інсоляції, або розрахункова тривалість переривчастої інсоляції не менше ніж на 0,5 год перевищує нормативну тривалість безперервноїінсоляції.  (ДСТУ-Н Б В.2.2-27:2010)</TextBlock>
+            </Border>
+
+            <Border Style="{StaticResource Note}">
+              <TextBlock TextWrapping="Wrap"><Run FontWeight="Bold">Безперервна тривалість інсоляції</Run> — інтервал часу доби, протягом якого ні елементи будинку, ні протилежні будинки, ні рельєф місцевості <Run FontWeight="Bold">ні на мить</Run> не перешкоджають інсоляції приміщення. <Run Style="{StaticResource Src}">(ДСТУ-Н Б В.2.2-27:2010, п. 3.27.1)</Run></TextBlock>
+            </Border>
+
+            <TextBlock Style="{StaticResource Body}">Тому вікно, яке отримує 1 год зранку, і ще 1,5 год увечері, має <Run FontWeight="Bold">2,5 год сумарно, але лише 1,5 год безперервно</Run>. Відповідно <Run FontWeight="Bold">не отримує</Run> достатньо інсоляції.</TextBlock>
+
+            <Border Style="{StaticResource Note}">
+              <TextBlock TextWrapping="Wrap"> Якщо інсоляція переривається <Run FontWeight="Bold">більше ніж один раз</Run>, за розрахункову тривалість беруть <Run FontWeight="Bold">суму двох найбільших</Run> періодів інсоляції.<Run Style="{StaticResource Src}">(ДСТУ-Н Б В.2.2-27:2010, п. 3.27.4)</Run></TextBlock>
+            </Border>
+
+            <TextBlock Text="Що це означає для результату кнопки" FontWeight="SemiBold" Foreground="#0B3D5C" Margin="4,12,0,2"/>
+            
+            <TextBlock Style="{StaticResource Body}"><Run FontWeight="Bold">Скрипти інсоляції мас</Run> рахують <Run FontWeight="Bold">сумарну</Run> кількість годин: підсумовують усі кроки часу, коли промінь дійшов до точки. Це <Run FontWeight="Bold">не</Run> безперервна тривалість у розумінні норми. Тому результат кнопки слід читати як <Run FontWeight="Bold">верхню оцінку</Run>: якщо сумарно вийшло менше за норматив — приміщення з вікнами на ті стіни точно не проходить; якщо більше — потрібно окремо переконатись, що ці години йдуть поспіль. Із перервами змінюється поріг порівняння: смуга 2,5 год у легенді перестає бути прохідною, орієнтир зміщується до 3,0 год.</TextBlock>
+            
+            
+            <TextBlock Style="{StaticResource Body}"><Run FontWeight="Bold">Скрипт інсоляції вікон</Run> цю норму враховує. Скрипт вписує в параметр лише розрахункову інсоляцію, а у таблиці з результатами є окремо тривалість безперервної інсоляції.</TextBlock>
+            
+          </StackPanel>
+        </Expander>
+
+        <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Допустимі відхилення" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — −0,5 год для меридіональних квартир і складних умов." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Bullet}">1.  Дозволяється <Run FontWeight="Bold">одноразова переривчастість</Run> — за умови, що сумарна тривалість за день <Run FontWeight="Bold">збільшується на 0,5 год</Run>.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">2.  Дозволяється <Run FontWeight="Bold">скорочення тривалості на 0,5 год</Run>:</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">      –  у житлових будинках <Run FontWeight="Bold">меридіонального типу</Run>, де інсолюються <Run FontWeight="Bold">всі</Run> кімнати квартири;</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">      –  при реконструкції або новому будівництві в особливо складних умовах (історично цінне середовище, дорога підготовка території, зона загальноміського/районного центру).</TextBlock>
+            <Border Style="{StaticResource Note}">
+              <TextBlock TextWrapping="Wrap"><Run FontWeight="Bold">Меридіональний тип</Run> — будинок, поздовжня вісь якого йде з півночі на південь; вікна кімнат виходять на схід і захід. Обидва боки інсолюються приблизно рівномірно, і сонце дістає всі кімнати квартири, тому норма допускає знижений поріг — 2,0 год замість 2,5.</TextBlock>
+            </Border>
+            <TextBlock Style="{StaticResource Body}">Розрахункова сумарна тривалість має перевищувати норматив безперервної <Run FontWeight="Bold">не менше ніж на 0,5 год</Run> <Run Style="{StaticResource Src}">(ДСТУ, п. 7.6)</Run>. При кількох перервах у залік беруть <Run FontWeight="Bold">суму двох найбільших</Run> періодів <Run Style="{StaticResource Src}">(ДСТУ, п. 3.27.4)</Run>.</TextBlock>
+          </StackPanel>
+        </Expander>
+
+        <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Про статус документів" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — ДБН Б.2.2-12 і ДСП 173-96." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">ДБН Б.2.2-12</Run> «Планування та забудова територій» — чинна містобудівна норма.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">ДСП 173-96</Run> «Державні санітарні правила планування та забудови населених пунктів» — чинна містобудівна норма.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  Перед посиланням у проектній документації варто звірити чинність редакцій із актуальним переліком ДБН.</TextBlock>
+          </StackPanel>
+        </Expander>
+ 
+         <TextBlock Text="Кнопки розділу" FontSize="16" FontWeight="SemiBold"
+                   Foreground="#0B3D5C" Margin="2,14,0,4"/>
+
+        <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Інсоляція вікон" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — визначення інсоляції методом інсоляційної лінійки*" Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Body}">Скрипт оцінює інсоляцію <Run FontWeight="Bold">кожного вікна окремо</Run> і записує результат у сам елемент.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Необхідні елементи:</Run> 3D-вид з назвою <Run FontStyle="Italic">"Інсоляція"</Run>, параметр <Run FontStyle="Italic">"AVR_Години інсоляції"</Run>, обрані вікна для розрахунку.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Які елементи розраховує:</Run> вікна та скляні панелі навісних стін. Скляні панелі розпізнаються за іменем типу (<Run FontStyle="Italic">вітраж</Run>, <Run FontStyle="Italic">склопакет</Run>).</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Що затінює:</Run> маси, стіни, дахи та перекриття та з <Run FontStyle="Italic">Linked Revit Models</Run>, які видимі у виді "Інсоляція".</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Розрахункова точка:</Run> центр геометрії вікна.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Результат:</Run> розранукова кількість годин записується у параметр <Run FontStyle="Italic">AVR_Години інсоляції</Run>, після чого вікна сортуються за цим значенням і змінюють колір у виді <Run FontStyle="Italic">«Інсоляція»</Run>.</TextBlock>
+            <TextBlock Style="{StaticResource Body}">   У вікні з результатами є три совпчики результатів. Загальна - увесь час, коли точка отримує інсоляцію; Розрахукова - сума двох найдовших періодів інсоляції, відрізняється, якщо вікно має більше двох періодів інсоляції і вона ж записується в параметр; Найбільша безперервна - тривалість найдовшого періоду інсоляції.</TextBlock>
+            <Border Style="{StaticResource Note}">
+              <TextBlock TextWrapping="Wrap"><Run FontWeight="Bold">* Обмеження.</Run> Скрипт автоматично бере точку в центрі геометрії вікна, не залежно від наявності екрануючих елеметів чи форми вікна. Метод інсоляційної лінійки оцінює <Run FontWeight="Bold">достатню</Run> умову: якщо норма виконується, режим гарантовано задовільний. Незначне невиконання ще не означає порушення — за ДСТУ такий випадок довизначається методом розрахункової точки (РТ) або граничної поверхні (ГП), які дають більшу точність і зазвичай більшу тривалість. <Run Style="{StaticResource Src}">(ДСТУ-Н Б В.2.2-27:2010, п. 5.5.2)</Run></TextBlock>
+            </Border>
+          </StackPanel>
+        </Expander>
+
+        <Expander>
+          <Expander.Header>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Інсоляція мас" Style="{StaticResource SecTitle}"/>
+              <TextBlock Grid.Column="1" Text="  — мапа кількості інсоляції на вертикальних площинах." Style="{StaticResource SecGist}"/>
+            </Grid>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Body}">Скрипт будує <Run FontWeight="Bold">мапу кількості інсоляції</Run> або <Run FontWeight="Bold">точки з відображеними значеннями</Run> на вертикальних фасадах. Використовується на ранніх стадіях, коли вікон ще немає: оцінка посадки об'єму, поверховості, впливу нової будівлі на сусідні.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Необхідні елементи:</Run> 3D-вид з назвою <Run FontStyle="Italic">"Інсоляція"</Run>.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Де рахує:</Run> вертикальні грані елементів Маси, Перекриття та Дахів — з кроком сітки заданим користувачем.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Відображення:</Run> мапа у 3D-виді <Run FontStyle="Italic">"Інсоляція"</Run>, легенда з межами смуг 2,0 / 2,5 / 3,0 год (Щоб редагувати цю легенду перейдіть в <Run FontStyle="Italic">Manage > Additional Settings > Analysis Display Styles</Run>)</TextBlock>
+            <TextBlock Style="{StaticResource Body}"><Run FontWeight="Bold">Два варіанти запуску:</Run></TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Маска (кольорові поверхні):</Run> створює маску Analysis Results розфарбовану суцільно відповідно до легенди.</TextBlock>
+            <TextBlock Style="{StaticResource Bullet}">•  <Run FontWeight="Bold">Точки зі значеннями:</Run> набір точок зі значеннями інсоляції для кожної з них. При великій кількості точок може виснути, тому варто задати більший крок сітки.</TextBlock>
+            
+            <Border Style="{StaticResource Note}">
+              <TextBlock TextWrapping="Wrap">Інсоляція мас — інструмент для порівняння варіантів на ранніх стадіях.</TextBlock>
+            </Border>
+          </StackPanel>
+        </Expander>
+
+
+
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</Window>
