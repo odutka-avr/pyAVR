@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 __title__ = "Інсоляція мас"
-__doc__ = """Версія = 1.0
+__doc__ = """Версія = 1.0.1
 Дата створення 22.07.2026
 
-Дата оновлення 01.09.2026
+Дата оновлення 14.09.2026
 ________________________________________________________________
 
 Кнопка запускає розрахунок інсоляції для сітки точок на 
@@ -70,6 +70,10 @@ Updates
        box are cleared, display style is Hidden Line (Shading would
        mix the material under the AVF fill into its colour). An
        existing view is never touched.
+
+1.0.1 - analysis results / geometry overlap fix
+    1. added offset for analysis results in case of geometry overlap
+    2. added Generic models to analized and to shading elements
 """
 
 import math
@@ -109,6 +113,7 @@ MODE_PTS  = u'Точки зі значеннями'
 MARKER_STYLE_NAME = u"AVR_Інсоляція_Знаки"
 POINT_OFFSET  = 0.005 * FT_PER_M    # off the face to avoid self-hits
 CONTACT_TOL   = 0.5 * FT_PER_M     # faces closer than this to another
+RESULT_OFFSET = 0.01 * FT_PER_M 
 DEBUG_REJECTED = False
 
 # спосіб відбору блоків - питається на самому початку
@@ -122,7 +127,8 @@ PARAM_2 = u"AVR_Номер Секції"
 # категорії, з яких беруться вертикальні площини для розрахунку
 TARGET_CATS = [BuiltInCategory.OST_Floors,
                BuiltInCategory.OST_Roofs,
-               BuiltInCategory.OST_Mass]
+               BuiltInCategory.OST_Mass,
+               BuiltInCategory.OST_GenericModel]
 
 VIEW_CREATED = [False]             # вид «Інсоляція» створено цим запуском
 
@@ -139,7 +145,7 @@ CONTEXT_CATS = [
     BuiltInCategory.OST_Floors,
     BuiltInCategory.OST_CurtainWallPanels,
     BuiltInCategory.OST_Mass,
-]
+    BuiltInCategory.OST_GenericModel]
 
 # Єдині категорії, які торкаємось у щойно створеному виді: цілі
 # розрахунку, затіняючий контекст і зв'язані моделі. Решта лишається
@@ -790,7 +796,7 @@ def main():
 
 
     # ---- ray casting with cancellable progress ------------------------
-    results = []            # (face, kept_uvs, values)
+    results = []            # (face, xform, kept_uvs, values)
     cancelled = False
     done = 0
     contact_skipped = 0
@@ -821,7 +827,7 @@ def main():
                 kept.append(uv)
                 vals.append(sun_hours(pt, normal, vecs, ri, timestep))
             if not cancelled and kept:
-                results.append((face, kept, vals))
+                results.append((face, xf, normal, kept, vals))
     if cancelled:
         forms.alert(u"Операція скасована. Нічого не відобразиться.")
         return
@@ -864,11 +870,14 @@ def main():
         view.Scale = 200
 
         placed = 0
-        for face, uvs, vals in results:
+        for face, xf, normal, uvs, vals in results:
             uv_list = List[UV](uvs)
             val_list = List[ValueAtPoint](
                 [ValueAtPoint(List[Double]([v])) for v in vals])
-            idx = sfm.AddSpatialFieldPrimitive(face.Reference)
+            shift = Transform.CreateTranslation(normal.Multiply(RESULT_OFFSET))
+            place = shift if xf is None else shift.Multyply(xf)
+
+            idx = sfm.AddSpatialFieldPrimitive(face, place)
             sfm.UpdateSpatialFieldPrimitive(
                 idx, FieldDomainPointsByUV(uv_list),
                 FieldValues(val_list), schema_idx)
