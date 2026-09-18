@@ -1,0 +1,47 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Selected Element IDs"
+        Height="420" Width="360"
+        MinHeight="300" MinWidth="280"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResizeWithGrip">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="lbl_count"
+                   Grid.Row="0"
+                   Margin="0,0,0,8"
+                   FontWeight="Bold"
+                   FontSize="13"/>
+
+        <TextBox x:Name="tb_ids"
+                 Grid.Row="1"
+                 IsReadOnly="True"
+                 TextWrapping="NoWrap"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto"
+                 FontFamily="Consolas"
+                 FontSize="13"
+                 Padding="6"/>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,10,0,0">
+            <Button x:Name="btn_copy"
+                    Content="Copy"
+                    Width="80" Height="26"
+                    Margin="0,0,8,0"
+                    Click="btn_copy_click"/>
+            <Button x:Name="btn_close"
+                    Content="Close"
+                    Width="80" Height="26"
+                    Click="btn_close_click"/>
+        </StackPanel>
+    </Grid>
+</Window>
