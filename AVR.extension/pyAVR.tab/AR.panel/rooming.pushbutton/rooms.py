@@ -11,7 +11,7 @@ from Autodesk.Revit.DB import (BuiltInCategory,
 
 # local imports
 from shared_parameters import Shared_parameters
-from value_conversion import convert_feet_to_mm, convert_sq_feet_to_sq_m, set_sq_meters, convert_feet_to_m
+from value_conversion import convert_feet_to_mm, convert_sq_feet_to_sq_m, set_sq_meters, convert_feet_to_m, convert_mm_to_feet
 
 from pyrevit import revit, script
 logger = script.get_logger()
@@ -283,12 +283,24 @@ class Room_wrapper:
     def _calculate_area_low_window_sills(self):
         total_area = 0
         for w in self.windows:
-            rough_width = convert_feet_to_m(w.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            # rough width instance or type
+            try:
+                rough_width = convert_feet_to_m(w.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            except:
+                rough_width = convert_feet_to_m(w.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
             logger.debug("room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
+
             host_width = convert_feet_to_m(w.Host.Width)
             logger.debug("room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
-            frame_depth = convert_feet_to_m(w.Symbol.LookupParameter("Товщина рами").AsDouble())
+
+            # frame thickness variations
+            try:
+                frame_depth = convert_feet_to_m(w.Symbol.LookupParameter("Товщина рами").AsDouble())
+            except:
+                # default value = 100mm - in order not to account for old params
+                frame_depth = 0.1
             logger.debug("room: {}, FRAME THICKNESS: {}".format(self.room_number, frame_depth))
+
             total_area += rough_width * (host_width - frame_depth)
             logger.debug("room: {}, AREA: {}".format(self.room_number, total_area))
         return total_area
