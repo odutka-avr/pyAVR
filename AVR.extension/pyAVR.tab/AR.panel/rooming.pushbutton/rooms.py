@@ -279,19 +279,23 @@ class Room_wrapper:
 
         self.area_w_finish_layer_w_window_door_sills = self.area_w_finish_layer + self.area_low_windows_sill + self.area_doors_doorstep
 
-    
+
+    def __get_rough_width(self, element):
+            param = element.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)
+            if param is None or not param.HasValue:
+                param = element.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)
+            if param is None or not param.HasValue:
+                return 0.0
+            return convert_feet_to_m(param.AsDouble())
+
     def _calculate_area_low_window_sills(self):
         total_area = 0
         for w in self.windows:
             # rough width instance or type
-            try:
-                rough_width = convert_feet_to_m(w.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
-            except:
-                rough_width = convert_feet_to_m(w.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
-            logger.debug("room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
-
+            rough_width = self.__get_rough_width(w)
+            logger.debug("_calculate_area_low_window_sills - room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
             host_width = convert_feet_to_m(w.Host.Width)
-            logger.debug("room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
+            logger.debug("_calculate_area_low_window_sills - room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
 
             # frame thickness variations
             try:
@@ -299,26 +303,22 @@ class Room_wrapper:
             except:
                 # default value = 100mm - in order not to account for old params
                 frame_depth = 0.1
-            logger.debug("room: {}, FRAME THICKNESS: {}".format(self.room_number, frame_depth))
+            logger.debug("_calculate_area_low_window_sills - room: {}, FRAME THICKNESS: {}".format(self.room_number, frame_depth))
 
             total_area += rough_width * (host_width - frame_depth)
-            logger.debug("room: {}, AREA: {}".format(self.room_number, total_area))
+            logger.debug("_calculate_area_low_window_sills - room: {}, AREA: {}".format(self.room_number, total_area))
         return total_area
 
     def _calculate_area_door_doorsteps(self):
         total_area = 0
         for d in self.doors:
-            #logger.debug("### DEBUG - room: {}, door: {}, param: {}".format(self.room_number, d.Id, d.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)))
-            try:
-                rough_width = convert_feet_to_m(d.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
-            except:
-                rough_width = convert_feet_to_m(d.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble())
+            rough_width = self.__get_rough_width(d)
 
-            logger.debug("room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
+            logger.debug("_calculate_area_door_doorsteps - room: {}, ROUGH WIDTH: {}".format(self.room_number, rough_width))
             host_width = convert_feet_to_m(d.Host.Width)
-            logger.debug("room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
+            logger.debug("_calculate_area_door_doorsteps - room: {}, HOST WIDTH: {}".format(self.room_number, host_width))
             total_area += rough_width * host_width
-            logger.debug("room: {}, AREA: {}".format(self.room_number, total_area))
+            logger.debug("_calculate_area_door_doorsteps - room: {}, AREA: {}".format(self.room_number, total_area))
         return total_area
 
     def get_round_area_low_window_sills(self, round_by):
