@@ -1,0 +1,2007 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Листи проєкту" Height="800" Width="1080"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="Manual"
+        ResizeMode="NoResize"
+        PreviewKeyDown="MainWindow_PreviewKeyDown">
+
+    <Window.Resources>
+        <!-- ═══════ ШРИФТ ═══════ -->
+        <FontFamily x:Key="AppFont">Tahoma</FontFamily>
+
+        <!-- ═══════ КОЛЬОРОВА ПАЛІТРА ═══════ -->
+        <SolidColorBrush x:Key="AccentBrush"           Color="#6D5DFB"/>
+        <SolidColorBrush x:Key="AccentLightBrush"      Color="#F1EFFF"/>
+        <SolidColorBrush x:Key="AccentSelectedBrush"   Color="#F1EFFF"/>
+        <SolidColorBrush x:Key="GroupHeaderBrush"      Color="#181818"/>
+        <SolidColorBrush x:Key="RowHoverBrush"         Color="#F8F8FA"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush"      Color="#202124"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush"    Color="#7A7F87"/>
+        <SolidColorBrush x:Key="BorderColorBrush"      Color="#E7E8EB"/>
+        <SolidColorBrush x:Key="SurfaceBrush"          Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#090A0A"/>
+        <SolidColorBrush x:Key="TableBackgroundBrush"  Color="#181818"/>
+        <SolidColorBrush x:Key="TableBorderBrush"      Color="#55555A"/>
+        <SolidColorBrush x:Key="RowPillBrush"          Color="#262626"/>
+        <SolidColorBrush x:Key="HeaderTextBrush"       Color="#55555A"/>
+        <SolidColorBrush x:Key="ScrollBarBrush"        Color="#55555A"/>
+        <SolidColorBrush x:Key="AddButtonBgBrush"      Color="#1D152C"/>
+        <SolidColorBrush x:Key="AddButtonTextBrush"    Color="#573F85"/>
+        <SolidColorBrush x:Key="ApplyButtonBgBrush"    Color="#573F85"/>
+        <SolidColorBrush x:Key="EditBackgroundBrush"   Color="#7160A7"/>
+        <SolidColorBrush x:Key="ErrorTextBrush"        Color="#E52320"/>
+        <SolidColorBrush x:Key="ErrorRowBrush"         Color="#160606"/>
+        <SolidColorBrush x:Key="NeutralTextBrush"      Color="#878787"/>
+        <SolidColorBrush x:Key="NewSheetTextBrush"     Color="#52A0D8"/>
+        <SolidColorBrush x:Key="NewRowBgBrush"         Color="#132034"/>
+        <SolidColorBrush x:Key="ChangedRowBgBrush"     Color="#1D152C"/>
+        <SolidColorBrush x:Key="ViewsChangedTextBrush" Color="#E8A33D"/>
+
+        <!-- ═══════ НЕЯВНІ СТИЛІ ═══════ -->
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+        </Style>
+
+        <!-- ═══════ ЗАГОЛОВКИ КОЛОНОК  ═══════ -->
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridColumnHeader">
+                        <Border Background="{TemplateBinding Background}" BorderThickness="0">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                               VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══════ СПАДАЛКА ГРУПИ ═══════ -->
+        <Style x:Key="GroupExpanderStyle" TargetType="Expander">
+            <Setter Property="Background" Value="{StaticResource TableBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <Border Name="MainBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent" BorderThickness="0" CornerRadius="6">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <ToggleButton Grid.Row="0" Padding="4"
+                                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Grid Background="Transparent">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,10,0" VerticalAlignment="Center">
+                                                    <Rectangle Width="2" Height="14" RadiusX="1" RadiusY="1"
+                                                               Fill="{StaticResource TableBorderBrush}" Margin="0,0,8,0"/>
+                                                    <Path Name="Arrow" Data="M 5,3 L 10,8 L 5,13"
+                                                          Stroke="{StaticResource TableBorderBrush}"
+                                                          StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                          Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center"/>
+                                                </StackPanel>
+
+                                                <ContentPresenter Grid.Column="1" ContentSource="Content"
+                                                                   VerticalAlignment="Center"/>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="Arrow" Property="Data" Value="M 3,5 L 8,10 L 13,5"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                    <ContentPresenter ContentSource="Header"/>
+                                </ToggleButton>
+
+                                <ContentPresenter Grid.Row="1" Name="ExpandSite" Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══════ COMBOBOX ═══════ -->
+        <Style TargetType="ComboBox">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Name="ToggleBtn"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Name="MainBorder"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="4">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="20"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Name="Arrow" Grid.Column="1"
+                                                      Data="M 4,6 L 8,10 L 12,6"
+                                                      Stroke="{StaticResource TableBorderBrush}"
+                                                      StrokeThickness="1.5" StrokeLineJoin="Round"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="MainBorder" Property="BorderBrush" Value="{StaticResource TableBorderBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+
+                            <ContentPresenter Name="ContentSite"
+                                               IsHitTestVisible="False"
+                                               Content="{TemplateBinding SelectionBoxItem}"
+                                               ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                               Margin="8,0,24,0"
+                                               VerticalAlignment="Center" HorizontalAlignment="Left"/>
+
+                            <Popup Name="Popup" Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="{StaticResource TableBackgroundBrush}"
+                                        BorderBrush="{StaticResource TableBorderBrush}"
+                                        BorderThickness="1" CornerRadius="4"
+                                        MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="200">
+                                    <ScrollViewer>
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsSelected}" Value="True">
+                    <Setter Property="Foreground" Value="White"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                    <Setter Property="Foreground" Value="{StaticResource ErrorTextBrush}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource ErrorTextBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource TableBorderBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PickerCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Name="CheckBoxBorder" Width="16" Height="16" CornerRadius="4"
+                                    Background="Transparent"
+                                    BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1.5"
+                                    VerticalAlignment="Center">
+                                <Path Name="CheckMark" Data="M 3,7 L 6,10 L 12,3"
+                                      Stroke="White" StrokeThickness="2"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══════ ВИНОСКА-ПІДКАЗКА: ІНФО (фіолетова) ═══════ -->
+        <Style x:Key="InfoTooltipStyle" TargetType="ToolTip">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HasDropShadow" Value="False"/>
+        </Style>
+
+        <Style x:Key="ErrorTooltipStyle" TargetType="ToolTip">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HasDropShadow" Value="False"/>
+        </Style>
+
+        <!-- ═══════ ВЕРТИКАЛЬНИЙ СКРОЛБАР ═══════ -->
+        <ControlTemplate x:Key="VerticalScrollBarTemplate" TargetType="ScrollBar">
+            <Grid Width="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <RepeatButton Grid.Row="0" Height="14" Command="ScrollBar.LineUpCommand" Background="Transparent" BorderThickness="0">
+                    <RepeatButton.Template>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Path Data="M 4,9 L 7,4 L 10,9 Z" Width="8" Height="6" Stretch="Uniform"
+                                  Fill="{StaticResource ScrollBarBrush}" Stroke="{StaticResource ScrollBarBrush}"
+                                  StrokeThickness="2" StrokeLineJoin="Round"/>
+                        </ControlTemplate>
+                    </RepeatButton.Template>
+                </RepeatButton>
+
+                <Track Grid.Row="1" Name="PART_Track" IsDirectionReversed="True">
+                    <Track.DecreaseRepeatButton>
+                        <RepeatButton Command="ScrollBar.PageUpCommand" Background="Transparent" BorderThickness="0"/>
+                    </Track.DecreaseRepeatButton>
+                    <Track.IncreaseRepeatButton>
+                        <RepeatButton Command="ScrollBar.PageDownCommand" Background="Transparent" BorderThickness="0"/>
+                    </Track.IncreaseRepeatButton>
+                    <Track.Thumb>
+                        <Thumb>
+                            <Thumb.Template>
+                                <ControlTemplate TargetType="Thumb">
+                                    <Border Background="{StaticResource ScrollBarBrush}" CornerRadius="7" Width="8" Margin="3,0"/>
+                                </ControlTemplate>
+                            </Thumb.Template>
+                        </Thumb>
+                    </Track.Thumb>
+                </Track>
+
+                <RepeatButton Grid.Row="2" Height="14" Command="ScrollBar.LineDownCommand" Background="Transparent" BorderThickness="0">
+                    <RepeatButton.Template>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Path Data="M 4,4 L 10,4 L 7,9 Z" Width="8" Height="6" Stretch="Uniform"
+                                  Fill="{StaticResource ScrollBarBrush}" Stroke="{StaticResource ScrollBarBrush}"
+                                  StrokeThickness="2" StrokeLineJoin="Round"/>
+                        </ControlTemplate>
+                    </RepeatButton.Template>
+                </RepeatButton>
+            </Grid>
+        </ControlTemplate>
+
+        <!-- ═══════ ГОРИЗОНТАЛЬНИЙ СКРОЛБАР ═══════ -->
+        <ControlTemplate x:Key="HorizontalScrollBarTemplate" TargetType="ScrollBar">
+            <Grid Height="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <RepeatButton Grid.Column="0" Width="14" Command="ScrollBar.LineLeftCommand" Background="Transparent" BorderThickness="0">
+                    <RepeatButton.Template>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Path Data="M 9,4 L 4,7 L 9,10 Z" Width="6" Height="8" Stretch="Uniform"
+                                  Fill="{StaticResource ScrollBarBrush}" Stroke="{StaticResource ScrollBarBrush}"
+                                  StrokeThickness="2" StrokeLineJoin="Round"/>
+                        </ControlTemplate>
+                    </RepeatButton.Template>
+                </RepeatButton>
+
+                <Track Grid.Column="1" Name="PART_Track">
+                    <Track.DecreaseRepeatButton>
+                        <RepeatButton Command="ScrollBar.PageLeftCommand" Background="Transparent" BorderThickness="0"/>
+                    </Track.DecreaseRepeatButton>
+                    <Track.IncreaseRepeatButton>
+                        <RepeatButton Command="ScrollBar.PageRightCommand" Background="Transparent" BorderThickness="0"/>
+                    </Track.IncreaseRepeatButton>
+                    <Track.Thumb>
+                        <Thumb>
+                            <Thumb.Template>
+                                <ControlTemplate TargetType="Thumb">
+                                    <Border Background="{StaticResource ScrollBarBrush}" CornerRadius="7" Height="8" Margin="0,3"/>
+                                </ControlTemplate>
+                            </Thumb.Template>
+                        </Thumb>
+                    </Track.Thumb>
+                </Track>
+
+                <RepeatButton Grid.Column="2" Width="14" Command="ScrollBar.LineRightCommand" Background="Transparent" BorderThickness="0">
+                    <RepeatButton.Template>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Path Data="M 4,4 L 9,7 L 4,10 Z" Width="6" Height="8" Stretch="Uniform"
+                                  Fill="{StaticResource ScrollBarBrush}" Stroke="{StaticResource ScrollBarBrush}"
+                                  StrokeThickness="2" StrokeLineJoin="Round"/>
+                        </ControlTemplate>
+                    </RepeatButton.Template>
+                </RepeatButton>
+            </Grid>
+        </ControlTemplate>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template" Value="{StaticResource VerticalScrollBarTemplate}"/>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Template" Value="{StaticResource HorizontalScrollBarTemplate}"/>
+                    <Setter Property="Height" Value="14"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+
+        <Border Name="RootBorder" CornerRadius="14" Background="{StaticResource WindowBackgroundBrush}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="BorderThickness" Value="2"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=IsActive}" Value="True">
+                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+
+            <Grid Name="MainContentGrid" Margin="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- ═══════ ВЛАСНИЙ ЗАГОЛОВОК ═══════ -->
+                <Grid Grid.Row="0" Background="#090A0A"
+                      MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Image Grid.Column="0" Name="img_TitleIcon" Width="20" Height="20"
+                        Margin="16,0,0,0" VerticalAlignment="Center"/>
+
+                    <TextBlock Grid.Column="0" Grid.ColumnSpan="3" Text="Листи+"
+                               FontSize="14" FontWeight="SemiBold" Foreground="#55555A"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,8,0">
+                        <Button Content="—" Width="34" Height="30"
+                                Background="Transparent" BorderThickness="0" Foreground="{StaticResource TableBorderBrush}"
+                                Click="TitleBar_Minimize" FontWeight="Bold">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Name="BtnBorder" Background="{TemplateBinding Background}">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="BtnBorder" Property="Background" Value="{StaticResource RowPillBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button Content="✕" Width="34" Height="30"
+                                Background="Transparent" BorderThickness="0" Foreground="{StaticResource TableBorderBrush}"
+                                Click="TitleBar_Close" FontWeight="Bold">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Name="BtnBorder" Background="{TemplateBinding Background}">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="BtnBorder" Property="Background" Value="{StaticResource RowPillBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <!-- ═══════ КАРТКА СТАТУСУ ═══════ -->
+                <Border Grid.Row="2" Background="{StaticResource TableBackgroundBrush}"
+                        BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                        CornerRadius="10" Margin="16,16,0,10" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="КАРТА ЗМІН" FontSize="12" FontWeight="Bold"
+                                   Foreground="{StaticResource HeaderTextBrush}" Margin="0,0,0,10"/>
+
+                        <UniformGrid Rows="1" Columns="6">
+                            <Border Background="{StaticResource RowPillBrush}" CornerRadius="8" Margin="0,0,6,0" Padding="8,8">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Name="tb_StatNewSheets" Text="0" FontSize="18" FontWeight="Bold"
+                                               Foreground="#52A0D8" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="НОВІ ЛИСТИ" FontSize="8" Foreground="{StaticResource HeaderTextBrush}"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{StaticResource RowPillBrush}" CornerRadius="8" Margin="0,0,6,0" Padding="8,8">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Name="tb_StatNewViews" Text="0" FontSize="18" FontWeight="Bold"
+                                               Foreground="#52A0D8" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="НОВІ ВИДИ" FontSize="8" Foreground="{StaticResource HeaderTextBrush}"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{StaticResource RowPillBrush}" CornerRadius="8" Margin="0,0,6,0" Padding="8,8">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Name="tb_StatChangedSheets" Text="0" FontSize="18" FontWeight="Bold"
+                                               Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="ЗМІНИ В ЛИСТАХ" FontSize="8" Foreground="{StaticResource HeaderTextBrush}"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{StaticResource RowPillBrush}" CornerRadius="8" Margin="0,0,6,0" Padding="8,8">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Name="tb_StatChangedViews" Text="0" FontSize="18" FontWeight="Bold"
+                                               Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="ЗМІНИ В ВИДАХ" FontSize="8" Foreground="{StaticResource HeaderTextBrush}"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{StaticResource RowPillBrush}" CornerRadius="8" Margin="0,0,6,0" Padding="8,8">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Name="tb_StatRemoved" Text="0" FontSize="18" FontWeight="Bold"
+                                               Foreground="#E52320" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="ВИДАЛЕНО" FontSize="8" Foreground="{StaticResource HeaderTextBrush}"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{StaticResource RowPillBrush}" CornerRadius="8" Padding="8,8">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Name="tb_StatErrors" Text="0" FontSize="18" FontWeight="Bold"
+                                               Foreground="{StaticResource ErrorTextBrush}" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="ПОМИЛОК" FontSize="8" Foreground="{StaticResource HeaderTextBrush}"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══════ "ЛИСТИ" + ПОШУК ═══════ -->
+                <Grid Grid.Row="3" Margin="16,0,16,8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Функції" FontSize="16" FontWeight="SemiBold"
+                               Foreground="#55555A" Margin="0,0,0,8"/>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid Grid.Column="0">
+                                <TextBox Name="tb_SheetSearch" Height="30" Padding="13,0,0,0"
+                                         Background="{StaticResource TableBackgroundBrush}"
+                                         Foreground="White" BorderThickness="1"
+                                         VerticalContentAlignment="Center"
+                                         TextChanged="SheetSearch_TextChanged">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="BorderBrush" Value="{StaticResource TableBorderBrush}"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsFocused" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                    <TextBox.Template>
+                                        <ControlTemplate TargetType="TextBox">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                                                <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </TextBox.Template>
+                                </TextBox>
+
+                                <Path Data="M 8.5,2 C 12.09,2 15,4.91 15,8.5 C 15,10.07 14.44,11.5 13.51,12.62 L 17.95,17.05 C 18.34,17.44 18.34,18.07 17.95,18.46 C 17.56,18.85 16.93,18.85 16.54,18.46 L 12.09,14.02 C 10.98,14.94 9.55,15.5 8,15.5 C 4.41,15.5 1.5,12.59 1.5,9 C 1.5,5.41 4.41,2.5 8,2.5 M 8.5,2 A 6.5,6.5 0 1 0 8.500001,2"
+                                      Fill="{StaticResource TableBorderBrush}"
+                                      Width="14" Height="14" Stretch="Uniform"
+                                      HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"
+                                      IsHitTestVisible="False"/>
+
+                                <TextBlock Text="Пошук листів..." Foreground="{StaticResource HeaderTextBrush}" FontSize="11"
+                                           FontFamily="{StaticResource AppFont}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Center" Margin="27,0,0,0"
+                                           IsHitTestVisible="False">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=tb_SheetSearch}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                            <ToggleButton Grid.Column="1" Name="tb_OnlyChangedToggle" Content="Тільки зміни"
+                                          Margin="10,0,0,0" Padding="12,5"
+                                          Checked="OnlyChangedToggle_Changed" Unchecked="OnlyChangedToggle_Changed"
+                                          FontFamily="{StaticResource AppFont}" FontSize="11">
+                                <ToggleButton.Style>
+                                    <Style TargetType="ToggleButton">
+                                        <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+                                    </Style>
+                                </ToggleButton.Style>
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Name="ChipBorder" CornerRadius="6" Height="30"
+                                                Background="Transparent"
+                                                BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="ChipBorder" Property="Background" Value="#406D5DFB"/>
+                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="Transparent"/>
+                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                        </Grid>
+                    </Grid>
+                </Grid>
+
+                <!-- ═══════ ТАБЛИЦЯ-КАРТКА ═══════ -->
+                <Grid Grid.Row="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="1">
+                    <Border Background="{StaticResource TableBackgroundBrush}"
+                        BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                        CornerRadius="10" ClipToBounds="True">
+                    <Grid>
+                        <DataGrid Name="dg_Sheets" AutoGenerateColumns="False" HeadersVisibility="Column"
+                                  AllowDrop="True" SelectionMode="Extended" SelectionUnit="FullRow"
+                                  Background="Transparent" BorderThickness="0"
+                                  ClipToBounds="True"
+                                  SnapsToDevicePixels="True"
+                                  UseLayoutRounding="True"
+                                  RowHeight="28"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.IsVirtualizingWhenGrouping="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  CellEditEnding="DataGrid_CellEditEnding"
+                                  SelectionChanged="DataGrid_SelectionChanged"
+                                  PreviewMouseLeftButtonDown="DataGrid_PreviewMouseLeftButtonDown"
+                                  DragOver="DataGrid_DragOver"
+                                  Drop="DataGrid_Drop"
+                                  GridLinesVisibility="None"
+                                  HorizontalGridLinesBrush="Transparent">
+
+                        <DataGrid.Resources>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="Foreground" Value="#F9F9F9"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Padding" Value="8,0,12,0"/>
+                                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                    </Trigger>
+                                    <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource ErrorTextBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.Resources>
+
+                        <DataGrid.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.ContainerStyle>
+                                    <Style TargetType="{x:Type GroupItem}">
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type GroupItem}">
+                                                    <Expander IsExpanded="True" Style="{StaticResource GroupExpanderStyle}">
+                                                        <Expander.Header>
+                                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{StaticResource NeutralTextBrush}"/>
+                                                        </Expander.Header>
+                                                        <ItemsPresenter/>
+                                                    </Expander>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </GroupStyle.ContainerStyle>
+                            </GroupStyle>
+                        </DataGrid.GroupStyle>
+
+                        <!-- ═══════ ПЛАШКА РЯДКА ═══════ -->
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="{StaticResource RowPillBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Margin" Value="4,2,4,2"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="DataGridRow">
+                                            <StackPanel>
+                                                <Border Name="RowBorder" CornerRadius="6"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                                    <DataGridCellsPresenter/>
+                                                </Border>
+                                                <DataGridDetailsPresenter Visibility="{TemplateBinding DetailsVisibility}"/>
+                                            </StackPanel>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="DetailsVisibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Background" Value="#30302F"/>
+                                        <Setter Property="BorderBrush" Value="{StaticResource ApplyButtonBgBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </Trigger>
+                                    <DataTrigger Binding="{Binding IsDragging}" Value="True">
+                                        <Setter Property="Opacity" Value="0.4"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource ErrorRowBrush}"/>
+                                        <Setter Property="BorderBrush" Value="{StaticResource ErrorTextBrush}"/>
+                                        <Setter Property="BorderThickness" Value="1"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                        <Setter Property="DetailsVisibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+
+                        <DataGrid.RowDetailsTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                <ListBox ItemsSource="{Binding PlacedViews}"
+                                         SelectionMode="Extended"
+                                         Background="{StaticResource TableBackgroundBrush}"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                         PreviewKeyDown="ViewsListBox_PreviewKeyDown">
+
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="BorderThickness" Value="0"/>
+                                            <Setter Property="Padding" Value="0"/>
+                                            <Setter Property="Margin" Value="0"/>
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <Border Name="ItemBorder"
+                                                                Background="{TemplateBinding Background}"
+                                                                BorderBrush="Transparent"
+                                                                BorderThickness="1"
+                                                                CornerRadius="5"
+                                                                Margin="0,1">
+                                                            <ContentPresenter/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="ItemBorder" Property="Background" Value="#262626"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsSelected" Value="True">
+                                                                <Setter TargetName="ItemBorder" Property="Background" Value="#302A45"/>
+                                                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                            <MultiTrigger>
+                                                                <MultiTrigger.Conditions>
+                                                                    <Condition Property="IsSelected" Value="True"/>
+                                                                    <Condition Property="IsMouseOver" Value="True"/>
+                                                                </MultiTrigger.Conditions>
+                                                                <Setter TargetName="ItemBorder" Property="Background" Value="#3A3155"/>
+                                                            </MultiTrigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Name="ViewRowBorder"
+                                                    MouseEnter="ViewRow_MouseEnter" MouseLeave="ViewRow_MouseLeave">
+                                            <Grid Margin="0,3" >
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="20"/>
+                                                    <ColumnDefinition Width="15"/>
+                                                    <ColumnDefinition Width="30"/>
+                                                    <ColumnDefinition Width="26"/>
+                                                    <ColumnDefinition Width="80"/>
+                                                    <ColumnDefinition Width="350"/>
+                                                    <ColumnDefinition Width="350"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <Button Grid.Column="2" Name="ViewDeleteButton"
+                                                        Width="20" Height="20"
+                                                        Click="ViewDeleteButton_Click"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                        Cursor="Hand">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button">
+                                                            <Setter Property="Background" Value="Transparent"/>
+                                                            <Setter Property="Visibility" Value="Hidden"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Name="DeleteCircle" Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                                    BorderBrush="{StaticResource TableBorderBrush}"
+                                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                <TextBlock Name="DeleteGlyph" Text="✕" FontSize="9" FontWeight="Bold"
+                                                                           Foreground="{StaticResource TableBorderBrush}"
+                                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter TargetName="DeleteCircle" Property="BorderBrush" Value="{StaticResource ErrorTextBrush}"/>
+                                                                    <Setter TargetName="DeleteGlyph" Property="Foreground" Value="{StaticResource ErrorTextBrush}"/>
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+
+                                                <Border Grid.Column="3" Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                        Background="{StaticResource TableBackgroundBrush}"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="BorderBrush" Value="{StaticResource TableBorderBrush}"/>
+                                                            <Setter Property="Visibility" Value="Hidden"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasChanges}" Value="True">
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsMarkedForRemoval}" Value="True">
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource ErrorTextBrush}"/>
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <Border.ToolTip>
+                                                        <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Bottom">
+                                                            <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                                    BorderThickness="2">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsMarkedForRemoval}" Value="True">
+                                                                                <Setter Property="BorderBrush" Value="{StaticResource ErrorTextBrush}"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                                <TextBlock Text="{Binding ChangedFieldsText}"
+                                                                           Foreground="#878787" FontSize="11" TextWrapping="Wrap"/>
+                                                            </Border>
+                                                        </ToolTip>
+                                                    </Border.ToolTip>
+                                                    <TextBlock Name="ViewInfoGlyph" Text="i" FontSize="9" FontWeight="Bold"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsMarkedForRemoval}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{StaticResource ErrorTextBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Border>
+
+                                                <Border Grid.Column="4" Height="20" CornerRadius="10" BorderThickness="1.5"
+                                                        Background="#406D5DFB"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="0,0,8,0">
+                                                    <Border.ToolTip>
+                                                        <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Bottom">
+                                                            <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                                    BorderBrush="{StaticResource AccentBrush}" BorderThickness="2">
+                                                                <TextBlock Text="{Binding ViewTypeTooltip}"
+                                                                           Foreground="#878787" FontSize="11" TextWrapping="Wrap"/>
+                                                            </Border>
+                                                        </ToolTip>
+                                                    </Border.ToolTip>
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ViewTypeLabel}" Value="Views">
+                                                                    <Setter Property="ToolTip" Value="{x:Null}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding ViewTypeLabel}" Value="Legends">
+                                                                    <Setter Property="ToolTip" Value="{x:Null}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding ViewTypeLabel}" Value="Schedule">
+                                                                    <Setter Property="ToolTip" Value="{x:Null}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding ViewTypeLabel}" FontSize="10" FontWeight="Bold"
+                                                               Foreground="{StaticResource AccentBrush}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+
+                                                <TextBox Grid.Column="5" Text="{Binding ViewName, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                         Foreground="#B0B0B0" FontSize="11"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         VerticalAlignment="Center" Margin="8,0,0,0"
+                                                         TextChanged="ViewNameTextBox_TextChanged"/>
+
+                                                <ComboBox Grid.Column="6"
+                                                          ItemsSource="{Binding ViewTemplateOptions}"
+                                                          SelectedItem="{Binding ViewTemplateName, Mode=TwoWay}"
+                                                          SelectionChanged="ViewTemplateComboBox_SelectionChanged"
+                                                          Foreground="#B0B0B0"
+                                                          Height="26" HorizontalAlignment="Left" Width="350"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Button Name="AddViewButton" HorizontalAlignment="Left" Margin="91,4,0,4"
+                                    Click="AddViewButton_Click">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                    </Style>
+                                </Button.Style>
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Name="AddViewBorder" Background="{TemplateBinding Background}" CornerRadius="5" Padding="6,4">
+                                            <TextBlock Text="Додати вид" FontSize="11" FontFamily="{StaticResource AppFont}"
+                                                       Foreground="{StaticResource TableBorderBrush}"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="AddViewBorder" Property="Background" Value="#262626"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+
+                            <Popup Name="ViewPickerPopup" PlacementTarget="{Binding ElementName=AddViewButton}"
+                                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                                <Border Background="{StaticResource TableBackgroundBrush}"
+                                        BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                        CornerRadius="10" Padding="12" MinWidth="280" MaxWidth="480">
+                                    <StackPanel>
+                                        <TextBlock Text="Додати вид на лист" FontSize="12" FontWeight="Bold"
+                                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,10"/>
+
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                            <ToggleButton Name="chip_Views" Content="Views" Tag="Views" IsChecked="True"
+                                                          Click="ViewPickerCategoryChip_Click"
+                                                          Margin="0,0,6,0" Padding="12,5"
+                                                          FontFamily="{StaticResource AppFont}" FontSize="11">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton">
+                                                        <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                                <ToggleButton.Template>
+                                                    <ControlTemplate TargetType="ToggleButton">
+                                                        <Border Name="ChipBorder" CornerRadius="12"
+                                                                Background="Transparent"
+                                                                BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="Background" Value="#406D5DFB"/>
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="Transparent"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </ToggleButton.Template>
+                                            </ToggleButton>
+
+                                            <ToggleButton Name="chip_Legends" Content="Legends" Tag="Legends" IsChecked="True"
+                                                          Click="ViewPickerCategoryChip_Click"
+                                                          Margin="0,0,6,0" Padding="12,5"
+                                                          FontFamily="{StaticResource AppFont}" FontSize="11">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton">
+                                                        <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                                <ToggleButton.Template>
+                                                    <ControlTemplate TargetType="ToggleButton">
+                                                        <Border Name="ChipBorder" CornerRadius="12"
+                                                                Background="Transparent"
+                                                                BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="Background" Value="#406D5DFB"/>
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="Transparent"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </ToggleButton.Template>
+                                            </ToggleButton>
+
+                                            <ToggleButton Name="chip_Schedule" Content="Schedule" Tag="Schedule" IsChecked="True"
+                                                          Click="ViewPickerCategoryChip_Click"
+                                                          Padding="12,5"
+                                                          FontFamily="{StaticResource AppFont}" FontSize="11">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton">
+                                                        <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                                <ToggleButton.Template>
+                                                    <ControlTemplate TargetType="ToggleButton">
+                                                        <Border Name="ChipBorder" CornerRadius="12"
+                                                                Background="Transparent"
+                                                                BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="Background" Value="#406D5DFB"/>
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="Transparent"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </ToggleButton.Template>
+                                            </ToggleButton>
+                                        </StackPanel>
+
+                                        <Grid Margin="0,0,0,10">
+                                            <TextBox Name="ViewPickerSearch" Height="30" Padding="12,0,8,0"
+                                                     Background="{StaticResource TableBackgroundBrush}"
+                                                     Foreground="White" BorderThickness="1"
+                                                     VerticalContentAlignment="Center"
+                                                     TextChanged="ViewPickerSearch_TextChanged">
+                                                <TextBox.Style>
+                                                    <Style TargetType="TextBox">
+                                                        <Setter Property="BorderBrush" Value="{StaticResource TableBorderBrush}"/>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsFocused" Value="True">
+                                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBox.Style>
+                                                <TextBox.Template>
+                                                    <ControlTemplate TargetType="TextBox">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                                                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </TextBox.Template>
+                                            </TextBox>
+
+                                            <Path Data="M 8.5,2 C 12.09,2 15,4.91 15,8.5 C 15,10.07 14.44,11.5 13.51,12.62 L 17.95,17.05 C 18.34,17.44 18.34,18.07 17.95,18.46 C 17.56,18.85 16.93,18.85 16.54,18.46 L 12.09,14.02 C 10.98,14.94 9.55,15.5 8,15.5 C 4.41,15.5 1.5,12.59 1.5,9 C 1.5,5.41 4.41,2.5 8,2.5 M 8.5,2 A 6.5,6.5 0 1 0 8.500001,2"
+                                                  Fill="{StaticResource TableBorderBrush}"
+                                                  Width="14" Height="14" Stretch="Uniform"
+                                                  HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                  IsHitTestVisible="False"/>
+
+                                            <TextBlock Text="Search..." Foreground="{StaticResource HeaderTextBrush}" FontSize="11"
+                                                       FontFamily="{StaticResource AppFont}"
+                                                       HorizontalAlignment="Left" VerticalAlignment="Center" Margin="26,0,0,0"
+                                                       IsHitTestVisible="False">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Text, ElementName=ViewPickerSearch}" Value="">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+
+                                        <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl Name="ViewPickerList">
+                                                <ItemsControl.GroupStyle>
+                                                    <GroupStyle>
+                                                        <GroupStyle.HeaderTemplate>
+                                                            <DataTemplate>
+                                                                <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="Bold"
+                                                                           Foreground="{StaticResource AccentBrush}" Margin="0,8,0,4"/>
+                                                            </DataTemplate>
+                                                        </GroupStyle.HeaderTemplate>
+                                                    </GroupStyle>
+                                                </ItemsControl.GroupStyle>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox Style="{StaticResource PickerCheckBoxStyle}"
+                                                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                                  Margin="0,4">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Border Width="70" Height="18" CornerRadius="9" BorderThickness="0"
+                                                                        Background="#80573F85" Margin="0,0,8,0">
+                                                                    <TextBlock Text="{Binding ViewTypeLabel}" FontSize="9" FontWeight="Bold"
+                                                                               Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                </Border>
+                                                                <TextBlock Text="{Binding ViewName}" Foreground="White" FontSize="11"
+                                                                           VerticalAlignment="Center" TextWrapping="NoWrap"/>
+                                                            </StackPanel>
+                                                        </CheckBox>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+
+                                        <Button Name="ViewPickerAddButton" Content="Додати обрані" Width="140" Height="32"
+                                                HorizontalAlignment="Right" Margin="0,12,0,0"
+                                                FontWeight="Bold" BorderThickness="1.5" Click="ViewPickerAdd_Click">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Background" Value="{StaticResource ApplyButtonBgBrush}"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                                </Style>
+                                            </Button.Style>
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}" CornerRadius="8">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                            </StackPanel>
+                        </DataTemplate>
+                        </DataGrid.RowDetailsTemplate>
+
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="" Width="20">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="+" Width="15" Height="22"
+                                                Click="ButtonEvent_AddSheetAfterRow"
+                                                Tag="{Binding}"
+                                                FontWeight="Bold"
+                                                FontSize="14"
+                                                Foreground="{StaticResource TableBorderBrush}"
+                                                Background="Transparent"
+                                                BorderThickness="1"
+                                                Cursor="Hand">
+                                            <Button.ToolTip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Bottom">
+                                                    <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                            Background="{StaticResource TableBackgroundBrush}"
+                                                            BorderBrush="{StaticResource AccentBrush}" BorderThickness="2">
+                                                        <TextBlock Text="Додати новий лист після цього"
+                                                                   Foreground="#878787" FontSize="11"/>
+                                                    </Border>
+                                                </ToolTip>
+                                            </Button.ToolTip>
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="{StaticResource AccentLightBrush}"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Visibility" Value="Hidden"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=IsMouseOver}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTemplateColumn Header="" Width="15">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Name="DragHandleIcon" Text="↕" FontSize="14" Foreground="{StaticResource TableBorderBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Cursor="Hand"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTemplateColumn Header="" Width="30">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    Cursor="Hand" MouseLeftButtonDown="ViewsExpander_Click">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasPlacedViews}" Value="False">
+                                                            <Setter Property="Visibility" Value="Hidden"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+
+                                            <Path Name="Arrow" Data="M 5,3 L 10,8 L 5,13"
+                                                  Stroke="{StaticResource TableBorderBrush}"
+                                                  StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                  Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,1,0"
+                                                  RenderTransformOrigin="0.5,0.5">
+                                                <Path.Style>
+                                                    <Style TargetType="Path">
+                                                        <Setter Property="RenderTransform">
+                                                            <Setter.Value>
+                                                                <RotateTransform Angle="0"/>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                                                <Setter Property="RenderTransform">
+                                                                    <Setter.Value>
+                                                                        <RotateTransform Angle="90"/>
+                                                                    </Setter.Value>
+                                                                </Setter>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Path.Style>
+                                            </Path>
+
+                                            <Rectangle Width="2" Height="14" RadiusX="1" RadiusY="1"
+                                                       Fill="{StaticResource TableBorderBrush}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTemplateColumn Header="" Width="26">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <!-- Кружечок "С" - новий (запланований) лист -->
+                                            <Border Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                    BorderBrush="{StaticResource NewSheetTextBrush}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsNew}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Border.ToolTip>
+                                                    <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False">
+                                                        <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                Background="{StaticResource TableBackgroundBrush}"
+                                                                BorderBrush="{StaticResource NewSheetTextBrush}" BorderThickness="1">
+                                                            <TextBlock Text="Новий лист"
+                                                                       Foreground="#706F6F" FontSize="11" TextWrapping="Wrap"/>
+                                                        </Border>
+                                                    </ToolTip>
+                                                </Border.ToolTip>
+                                                <TextBlock Text="Н" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{StaticResource NewSheetTextBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+
+                                            <!-- Кружечок "i" - є зміни, все гаразд -->
+                                            <Border Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                    BorderBrush="{StaticResource AccentBrush}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasChanges}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsNew}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding ViewsHaveChanges}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Border.ToolTip>
+                                                    <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Top" VerticalOffset="0">
+                                                        <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                Background="{StaticResource TableBackgroundBrush}"
+                                                                BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
+                                                            <TextBlock Text="{Binding ChangedFieldsText}"
+                                                                       Foreground="{StaticResource NeutralTextBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                                        </Border>
+                                                    </ToolTip>
+                                                </Border.ToolTip>
+                                                <TextBlock Text="i" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{StaticResource AccentBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+
+                                            <!-- Кружечок "В" - зміни в розміщених видах -->
+                                            <Border Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                    BorderBrush="{StaticResource ViewsChangedTextBrush}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding ViewsHaveChanges}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsNew}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Border.ToolTip>
+                                                    <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Bottom">
+                                                        <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                Background="{StaticResource TableBackgroundBrush}"
+                                                                BorderBrush="{StaticResource ViewsChangedTextBrush}" BorderThickness="2">
+                                                            <TextBlock Text="{Binding ChangedFieldsText}"
+                                                                       Foreground="#878787" FontSize="11" TextWrapping="Wrap"/>
+                                                        </Border>
+                                                    </ToolTip>
+                                                </Border.ToolTip>
+                                                <TextBlock Text="В" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{StaticResource ViewsChangedTextBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+
+                                            <!-- Кружечок "!" - дублікат номера, помилка -->
+                                            <Border Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                    BorderBrush="{StaticResource ErrorTextBrush}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Border.ToolTip>
+                                                    <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Top" VerticalOffset="0">
+                                                        <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                Background="{StaticResource TableBackgroundBrush}"
+                                                                BorderBrush="{StaticResource ErrorTextBrush}" BorderThickness="1">
+                                                            <TextBlock Text="Дублікат номера листа! Виправте номер."
+                                                                       Foreground="{StaticResource NeutralTextBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                                        </Border>
+                                                    </ToolTip>
+                                                </Border.ToolTip>
+                                                <TextBlock Text="!" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{StaticResource ErrorTextBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+
+                                            <!-- Кружечок нейтральний - без змін, без помилок -->
+                                            <Border Width="16" Height="16" CornerRadius="8" BorderThickness="1.5"
+                                                    Background="{StaticResource TableBackgroundBrush}"
+                                                    BorderBrush="{StaticResource NeutralTextBrush}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasChanges}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsDuplicateNumber}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding ViewsHaveChanges}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Border.ToolTip>
+                                                    <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False"
+                                                             Placement="Top" VerticalOffset="0">
+                                                        <Border Padding="10,6" CornerRadius="8" MaxWidth="220"
+                                                                Background="{StaticResource TableBackgroundBrush}"
+                                                                BorderBrush="{StaticResource NeutralTextBrush}" BorderThickness="1">
+                                                            <TextBlock Text="Немає змін" Foreground="{StaticResource NeutralTextBrush}" FontSize="11"/>
+                                                        </Border>
+                                                    </ToolTip>
+                                                </Border.ToolTip>
+                                                <TextBlock Text="" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{StaticResource NeutralTextBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTextColumn Header="НОМЕР" Binding="{Binding Number}" Width="80" >
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="Padding" Value="8,0,0,0"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                                <DataGridTextColumn.EditingElementStyle>
+                                    <Style TargetType="TextBox">
+                                        <Setter Property="Background" Value="#30302F"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Padding" Value="8,0,12,0"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.EditingElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="НАЗВА" Binding="{Binding Name}" Width="350">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="Padding" Value="8,0,0,0"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                                <DataGridTextColumn.EditingElementStyle>
+                                    <Style TargetType="TextBox">
+                                        <Setter Property="Background" Value="#30302F"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Padding" Value="8,0,12,0"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.EditingElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTemplateColumn Header="TITLEBLOCK" Width="350" >
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <ComboBox ItemsSource="{Binding TitleBlockOptions}"
+                                                  SelectedItem="{Binding TitleBlock, Mode=TwoWay}"
+                                                  SelectionChanged="ComboBox_TitleBlockChanged"
+                                                  DropDownOpened="ComboBox_TitleBlockDropDownOpened"
+                                                  BorderThickness="0"
+                                                  Background="Transparent"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Name="SkeletonOverlay" Margin="10" Visibility="Collapsed">
+                        <StackPanel.Resources>
+                            <Style x:Key="SkeletonBar" TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource RowPillBrush}"/>
+                                <Setter Property="CornerRadius" Value="6"/>
+                                <Setter Property="Height" Value="34"/>
+                                <Setter Property="Margin" Value="0,3"/>
+                            </Style>
+                        </StackPanel.Resources>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                        <Border Style="{StaticResource SkeletonBar}"/>
+                    </StackPanel>
+
+                    <Grid Name="EmptyFilterOverlay" Visibility="Collapsed">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="Оберіть групу з фільтру" FontSize="13"
+                                       Foreground="{StaticResource AddButtonTextBrush}"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            <Button Name="btn_CreateNewStage" Content="Створити нову стадію"
+                                    Width="160" Height="30" Margin="0,4,10,0"
+                                    HorizontalAlignment="Center" Padding="14,8"
+                                    FontWeight="Bold" BorderThickness="1.5"
+                                    Click="ButtonEvent_AddSheet">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background" Value="{StaticResource AddButtonBgBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AddButtonTextBrush}"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                    </Style>
+                                </Button.Style>
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="8">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    </Grid>
+                </Border>
+                    <Button Name="btn_GroupFilter" Width="30" Height="30" Margin="6,6,0,0"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
+                            Click="GroupFilterButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="{StaticResource AddButtonTextBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1.5"
+                                        CornerRadius="8">
+                                    <Path Data="M 4,4 L 16,4 L 11,10 L 11,15 L 9,15 L 9,10 Z"
+                                          Fill="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Width="14" Height="14" Stretch="Uniform"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Popup Name="GroupFilterPopup" PlacementTarget="{Binding ElementName=btn_GroupFilter}"
+                           Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                        <Border Background="{StaticResource TableBackgroundBrush}"
+                                BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="12" MaxWidth="300">
+                            <StackPanel>
+                                <TextBlock Text="Фільтр за розділами" FontSize="12" FontWeight="Bold"
+                                           Foreground="{StaticResource AccentBrush}" Margin="0,0,0,10"/>
+
+                                <ItemsControl Name="ic_GroupFilterList">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <ToggleButton Content="{Binding GroupName}"
+                                                          IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                          Checked="GroupFilterChip_Changed"
+                                                          Unchecked="GroupFilterChip_Changed"
+                                                          Margin="0,0,6,6" Padding="12,5"
+                                                          FontFamily="{StaticResource AppFont}" FontSize="11">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton">
+                                                        <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                                <ToggleButton.Template>
+                                                    <ControlTemplate TargetType="ToggleButton">
+                                                        <Border Name="ChipBorder" CornerRadius="12"
+                                                                Background="Transparent"
+                                                                BorderBrush="{StaticResource TableBorderBrush}" BorderThickness="1"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsChecked" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="Background" Value="#406D5DFB"/>
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="Transparent"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="ChipBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </ToggleButton.Template>
+                                            </ToggleButton>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                    </Grid>
+
+
+                    <StackPanel Grid.Column="0" Margin="10,0,0,0">
+                        <Button  Name="btn_RenameSelected" Content="Змінити назву"
+                            Width="120" Height="30" Margin="0,4,10,0"
+                            FontWeight="Bold"
+                            BorderThickness="1.5"
+                            ToolTipService.ShowOnDisabled="True"
+                            Click="ButtonEvent_RenameSelected">
+                        <Button.ToolTip>
+                            <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Bottom">
+                                <Border Padding="10,6" CornerRadius="8" Width="220"
+                                        Background="{StaticResource TableBackgroundBrush}"
+                                        BorderBrush="{StaticResource AccentBrush}" BorderThickness="2">
+                                    <TextBlock Text="Виділіть листи (Ctrl+клік) і задайте префікс/суфікс чи заміну частини назви - з живим прев'ю."
+                                               Foreground="#878787" FontSize="11" TextWrapping="Wrap"/>
+                                </Border>
+                            </ToolTip>
+                        </Button.ToolTip>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{StaticResource AddButtonBgBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AddButtonTextBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Background" Value="{StaticResource TableBackgroundBrush}"/>
+                                        <Setter Property="Foreground" Value="#3A3A3D"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="8">
+                                    <ContentPresenter Name="BtnContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <MultiTrigger>
+                                        <MultiTrigger.Conditions>
+                                            <Condition Property="IsMouseOver" Value="True"/>
+                                            <Condition Property="IsEnabled" Value="True"/>
+                                        </MultiTrigger.Conditions>
+                                        <Setter TargetName="BtnBorder" Property="Background" Value="#090A0A"/>
+                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                    </MultiTrigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button  Name="btn_RenumberSelected" Content="Змінити номер"
+                            Width="120" Height="30" Margin="0,4,10,0"
+                            FontWeight="Bold"
+                            BorderThickness="1.5"
+                            ToolTipService.ShowOnDisabled="True"
+                            Click="ButtonEvent_RenumberSelected">
+                        <Button.ToolTip>
+                            <ToolTip Background="Transparent" BorderThickness="0" HasDropShadow="False" Placement="Bottom">
+                                <Border Padding="10,6" CornerRadius="8" Width="220"
+                                        Background="{StaticResource TableBackgroundBrush}"
+                                        BorderBrush="{StaticResource AccentBrush}" BorderThickness="2">
+                                    <TextBlock Text="Виділіть кілька листів у таблиці (Ctrl+клік) і задайте новий початковий номер - решта перенумеруються підряд."
+                                               Foreground="#878787" FontSize="11" TextWrapping="Wrap"/>
+                                </Border>
+                            </ToolTip>
+                        </Button.ToolTip>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{StaticResource AddButtonBgBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AddButtonTextBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Background" Value="{StaticResource TableBackgroundBrush}"/>
+                                        <Setter Property="Foreground" Value="#3A3A3D"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="8">
+                                    <ContentPresenter Name="BtnContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <MultiTrigger>
+                                        <MultiTrigger.Conditions>
+                                            <Condition Property="IsMouseOver" Value="True"/>
+                                            <Condition Property="IsEnabled" Value="True"/>
+                                        </MultiTrigger.Conditions>
+                                        <Setter TargetName="BtnBorder" Property="Background" Value="#090A0A"/>
+                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                    </MultiTrigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button  Name="btn_AddSheet" Content="Додати лист"
+                            Width="120" Height="30" Margin="0,4,10,0"
+                            FontWeight="Bold"
+                            BorderThickness="1.5"
+                            Click="ButtonEvent_AddSheet">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{StaticResource AddButtonBgBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AddButtonTextBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="8">
+                                    <ContentPresenter Name="BtnContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder" Property="Background" Value="#090A0A"/>
+                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button  Name="btn_CreateViewsFromLevels" Content="Створити види"
+                            Width="120" Height="30" Margin="0,4,10,0"
+                            FontWeight="Bold"
+                            BorderThickness="1.5"
+                            Click="ButtonEvent_OpenCreateViews">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{StaticResource AddButtonBgBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AddButtonTextBrush}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="8">
+                                    <ContentPresenter Name="BtnContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder" Property="Background" Value="#090A0A"/>
+                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    </StackPanel>
+                </Grid>
+
+                <!-- ═══════ ПАНЕЛЬ КНОПОК ═══════ -->
+                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                    <Button Name="btn_DiscardChanges" Content="Прибрати зміни"
+                        Width="140" Height="34"
+                        FontWeight="Bold"
+                        BorderThickness="1"
+                        Margin="0,0,10,0"
+                        Click="ButtonEvent_DiscardChanges">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="{StaticResource TableBackgroundBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource HeaderTextBrush}"/>
+                            <Setter Property="BorderBrush" Value="{StaticResource TableBorderBrush}"/>
+                        </Style>
+                    </Button.Style>
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="8">
+                                <ContentPresenter Name="BtnContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="BtnBorder" Property="BorderBrush" Value="{StaticResource ErrorTextBrush}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource ErrorTextBrush}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                    <Button Name="btn_SaveToRevit" Width="160" Height="34"
+                            BorderThickness="1.5"
+                            Click="ButtonEvent_ApplyAll">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{StaticResource ApplyButtonBgBrush}"/>
+                                <Setter Property="Foreground" Value="#F9F9F9"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Background" Value="{StaticResource TableBackgroundBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource NeutralTextBrush}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Name="BtnBorder" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="8" ClipToBounds="True">
+                                    <ContentPresenter/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="#F9F9F9"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+
+                        <Grid ClipToBounds="True">
+                            <Grid.Clip>
+                                <RectangleGeometry Rect="0,0,160,34" RadiusX="8" RadiusY="8"/>
+                            </Grid.Clip>
+                            <Border Name="ApplyProgressFill" Background="#33FFFFFF"
+                                    HorizontalAlignment="Left" Width="0"/>
+                            <TextBlock Name="ApplyButtonLabel" Text="Застосувати"
+                                       FontWeight="Bold" Foreground="#F9F9F9" FontFamily="{StaticResource AppFont}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <TextBlock Name="ApplyButtonCheckmark" Text="✓"
+                                       FontWeight="Bold" FontSize="16" Foreground="White"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Visibility="Collapsed" Opacity="0">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform Y="10"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Grid>
+                    </Button>
+                </StackPanel>
+
+            </Grid>
+        </Border>
+
+        <!-- ═══════ РУЧКИ ЗМІНИ РОЗМІРУ ═══════ -->
+        <Rectangle Fill="Transparent" Height="6" VerticalAlignment="Top"
+                   Cursor="SizeNS" Tag="N"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+        <Rectangle Fill="Transparent" Height="6" VerticalAlignment="Bottom"
+                   Cursor="SizeNS" Tag="S"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+        <Rectangle Fill="Transparent" Width="6" HorizontalAlignment="Left"
+                   Cursor="SizeWE" Tag="W"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+        <Rectangle Fill="Transparent" Width="6" HorizontalAlignment="Right"
+                   Cursor="SizeWE" Tag="E"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+
+        <Rectangle Fill="Transparent" Width="10" Height="10"
+                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                   Cursor="SizeNWSE" Tag="NW"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+        <Rectangle Fill="Transparent" Width="10" Height="10"
+                   HorizontalAlignment="Right" VerticalAlignment="Top"
+                   Cursor="SizeNESW" Tag="NE"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+        <Rectangle Fill="Transparent" Width="10" Height="10"
+                   HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                   Cursor="SizeNESW" Tag="SW"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+        <Rectangle Fill="Transparent" Width="10" Height="10"
+                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                   Cursor="SizeNWSE" Tag="SE"
+                   MouseLeftButtonDown="ResizeGrip_MouseLeftButtonDown"
+                   MouseMove="ResizeGrip_MouseMove"
+                   MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp"/>
+
+    </Grid>
+</Window>

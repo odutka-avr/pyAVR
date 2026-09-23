@@ -1,0 +1,19 @@
+title: Листи+
+
+tooltip: |
+  ⚠️ БЕТА-ВЕРСІЯ v0.0.0 - можливі зміни та доопрацювання.
+  
+  Управління листами проєкту:
+  • створення
+  • перенумерація
+  • зміна назви
+  • групування
+  
+  Оновлено: 23.09.2026
+
+author: G-BIM Kateryna Cherkashyna
+
+help_url: "https://app.notion.com/p/avrbim/pyAVR-33bba419a45e80df93b8e38208c7e75f?source=copy_link#3e4ba419a45e803e82c7de9626b1cbfd"
+
+engine:
+  persistent: true
