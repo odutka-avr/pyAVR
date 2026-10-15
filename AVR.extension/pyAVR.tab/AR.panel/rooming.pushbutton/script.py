@@ -283,14 +283,20 @@ try:
         total_room_area_sills = room.get_round_area_w_finish_layer_w_window_door_sills(usr_round_by)
         room.room_el.LookupParameter("AVR_Площа приміщення з порогами").Set(total_room_area_sills)
 
-        
+
+        logger.debug("\n")
         logger.debug("@"*100)
-        logger.debug(room)
+        #logger.debug(room)
         logger.debug("ROOM_NUM: {},\n" \
                     "ROOM_AREA_TOTAL (COEF+FN_LR): {},\n" \
                     "-- ROOM_AREA_TOTAL_W_SILLS (NO COEF+FN_LR): {}, \n" \
                     "-- ROOM_AREA_DOORSTEPS (NO COEF): {}, \n" \
                     "-- ROOM_AREA_SILLS (NO COEF): {}, \n" \
+                    "--- ROOM PERIMETER TOTAL (mm): {}, \n" \
+                    "--- ROOM NON WALL BOUNDARIES LENGTH (mm): {}, \n" \
+                    "--- ROOM USEFULL PERIMETER (mm): {}, \n" \
+                    "--- ROOM FINISH LAYER WIDTH (mm): {}, \n" \
+                    "--- ROOM FINISH LAYER AREA (m2): {}, \n" \
                     "APART_NUM: {},\n" \
                     "APART_TOTAL_AREA: {},\n" \
                     "APART_INNER_AREA: {}, \n" \
@@ -300,6 +306,11 @@ try:
                                         room.area_w_finish_layer_w_window_door_sills,
                                         room.area_doors_doorstep,
                                         room.area_low_windows_sill,
+                                        room.perimeter,
+                                        room.non_wall_boundaries_length,
+                                        room.perimeter - room.non_wall_boundaries_length,
+                                        room.finish_layer_width,
+                                        room.finish_layer_area,
                                         room.apartment_number, 
                                         room.apartment.total_area_w_coef_fn_lr,
                                         room.apartment.inner_area_w_coef_fn_lr, 

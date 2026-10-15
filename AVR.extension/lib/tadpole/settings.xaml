@@ -1,0 +1,232 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tadpole — налаштування" Width="530" Height="500"
+        MinHeight="500"
+        ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
+        Background="#e9ebef" FontFamily="Segoe UI" FontSize="13">
+
+  <Window.Resources>
+    <SolidColorBrush x:Key="Muted" Color="#6b6e73"/>
+    <SolidColorBrush x:Key="Faint" Color="#9298a0"/>
+    <SolidColorBrush x:Key="Line" Color="#d2d6dc"/>
+    <SolidColorBrush x:Key="Accent" Color="#2f7d6b"/>
+
+    <Style TargetType="TextBox">
+      <Setter Property="Height" Value="26"/>
+      <Setter Property="Padding" Value="6,3,6,3"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TextBox">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1" CornerRadius="7">
+              <ScrollViewer x:Name="PART_ContentHost" Margin="6,0,6,0"
+                            VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="#eef0f3"/>
+                <Setter Property="Foreground" Value="#9298a0"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- THE MOST 1K: with the switch on the shares are greyed out and half-transparent -->
+    <Style x:Key="RatioBlock" TargetType="StackPanel">
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding ElementName=cb_max1k, Path=IsChecked}" Value="True">
+          <Setter Property="IsEnabled" Value="False"/>
+          <Setter Property="Opacity" Value="0.4"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style x:Key="SwitchText" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource Faint}"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding ElementName=cb_max1k, Path=IsChecked}" Value="True">
+          <Setter Property="Foreground" Value="#1f2328"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style x:Key="Label" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+      <Setter Property="Margin" Value="0,10,0,4"/>
+    </Style>
+
+    <Style x:Key="Group" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="Margin" Value="0,4,0,8"/>
+    </Style>
+
+    <Style x:Key="ToggleSwitch" TargetType="CheckBox">
+      <Setter Property="Focusable" Value="True"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <Border Background="Transparent" Padding="0,2,0,2">
+              <Border x:Name="track" Width="34" Height="18" CornerRadius="9"
+                      Background="#c9ced6" HorizontalAlignment="Left">
+                <Border x:Name="thumb" Width="14" Height="14" CornerRadius="7"
+                        Background="White" HorizontalAlignment="Left"
+                        Margin="2,0,0,0"/>
+              </Border>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="track" Property="Background" Value="#0fae7f"/>
+                <Setter TargetName="thumb" Property="HorizontalAlignment" Value="Right"/>
+                <Setter TargetName="thumb" Property="Margin" Value="0,0,2,0"/>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                  <Condition Property="IsChecked" Value="False"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="track" Property="Background" Value="#b0b7c1"/>
+              </MultiTrigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                  <Condition Property="IsChecked" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="track" Property="Background" Value="#0c9670"/>
+              </MultiTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="#f5f6f8"/>
+      <Setter Property="BorderBrush" Value="#e0e3e8"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="12"/>
+      <Setter Property="Margin" Value="0,0,0,12"/>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel Margin="16">
+
+    <Border DockPanel.Dock="Bottom" Background="#f5f6f8"
+            BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0"
+            Padding="0,10,0,0" Margin="0,8,0,0">
+      <DockPanel>
+        <TextBlock x:Name="tb_status" DockPanel.Dock="Left"
+                   Foreground="{StaticResource Faint}"
+                   VerticalAlignment="Center"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="btn_reset" Content="Скинути" Width="90" Height="28"
+                  Margin="0,0,8,0" Click="reset_click"/>
+          <Button x:Name="btn_ok" Content="Продовжити" Width="130" Height="28"
+                  Background="#2f7d6b" Foreground="White" BorderThickness="0"
+                  Click="ok_click"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel>
+
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <TextBlock Text="Загальні" Style="{StaticResource Group}"/>
+
+            <TextBlock Text="Інсоляція, год (1.0 – 3.0)"
+                       Style="{StaticResource Label}" Margin="0,0,0,4"/>
+            <TextBox x:Name="tb_insolation"/>
+
+            <StackPanel x:Name="ratio_block" Style="{StaticResource RatioBlock}">
+            <TextBlock Text="Співвідношення, % (сума = 100)"
+                       Style="{StaticResource Label}"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0">
+                <TextBlock Text="1к" Foreground="{StaticResource Faint}"/>
+                <TextBox x:Name="tb_r1"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="2к" Foreground="{StaticResource Faint}"/>
+                <TextBox x:Name="tb_r2"/>
+              </StackPanel>
+              <StackPanel Grid.Column="4">
+                <TextBlock Text="3к" Foreground="{StaticResource Faint}"/>
+                <TextBox x:Name="tb_r3"/>
+              </StackPanel>
+            </Grid>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+              <CheckBox x:Name="cb_max1k" Style="{StaticResource ToggleSwitch}"/>
+              <TextBlock Text="Максимально 1к — без коригування за відсотками"
+                         Style="{StaticResource SwitchText}" Margin="8,0,0,0"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <TextBlock Text="Діапазони площ, м² (напр. 36-50)"
+                       Style="{StaticResource Label}"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0">
+                <TextBlock Text="1к" Foreground="{StaticResource Faint}"/>
+                <TextBox x:Name="tb_a1"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="2к" Foreground="{StaticResource Faint}"/>
+                <TextBox x:Name="tb_a2"/>
+              </StackPanel>
+              <StackPanel Grid.Column="4">
+                <TextBlock Text="3к" Foreground="{StaticResource Faint}"/>
+                <TextBox x:Name="tb_a3"/>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Card}">
+          <Expander x:Name="exp_sections" IsExpanded="False">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Секції" FontSize="15"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="tb_sections_note"
+                           Foreground="{StaticResource Faint}"
+                           Margin="12,0,0,0" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel x:Name="sections_panel" Margin="0,12,0,0"/>
+          </Expander>
+        </Border>
+
+        <TextBlock x:Name="tb_errors" Foreground="#b3453a"
+                   TextWrapping="Wrap" Margin="2,0,0,4"/>
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
+</Window>

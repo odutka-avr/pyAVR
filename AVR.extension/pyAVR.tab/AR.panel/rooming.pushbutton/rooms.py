@@ -191,6 +191,7 @@ class Room_wrapper:
         self.room_category = self.__get_room_category()
         self.building_section_number = self.__get_building_section_numebr()
         self.perimeter = self.__get_perimeter()
+        self.non_wall_boundaries_length = self.__get_non_wall_boundaries_length()
         self.coef = None
         # these params are set after calling setter method set_finish_layer_width
         self.finish_layer_width = 0
@@ -225,9 +226,9 @@ class Room_wrapper:
         Must be called before calculate_area().
 
         Args:
-            width (float): Finish layer width in mm.
+            width (float): Finish layer width in m.
         """
-        self.finish_layer_width = width
+        self.finish_layer_width = width / 1000
 
     
     def calculate_area(self, include_sills=False):
@@ -371,7 +372,7 @@ class Room_wrapper:
     def __get_perimeter(self):
         """Get value from default Room's Perimeter parameter"""
         val_in_feet = self.room_el.Perimeter
-        return convert_feet_to_mm(val_in_feet)
+        return convert_feet_to_m(val_in_feet)
 
 
     def __get_building_section_numebr(self):
@@ -401,17 +402,18 @@ class Room_wrapper:
         Calculates the area consumed by the finish layer in m².
 
         Formula:
-            (perimeter - non_wall_boundaries_length) * finish_layer_width / 10^6
+            (perimeter (mm) - non_wall_boundaries_length (mm)) * finish_layer_width / 10^6
             (converts mm² result to m²)
 
         Returns:
             float: Finish layer area in m².
         """
-        finish_area = (self.perimeter - self.__get_non_wall_boundaries_length()) * self.finish_layer_width
+        finish_area = (self.perimeter - self.non_wall_boundaries_length) * self.finish_layer_width
 
         # finish area is in mm2 -> convert to m2, in order to be negated from default area
-        return finish_area / 10**6
-        
+        #return finish_area / 10**6
+        return finish_area
+
 
     def __get_non_wall_boundaries_length(self):
         """
@@ -437,13 +439,13 @@ class Room_wrapper:
                     # if boundary is seperation line
                     if el.Category.Id.IntegerValue == int(BuiltInCategory.OST_RoomSeparationLines):
                         val_in_feet = segment.GetCurve().Length
-                        target_lengths += convert_feet_to_mm(val_in_feet)
+                        target_lengths += convert_feet_to_m(val_in_feet)
                     
                     # if boundary is curtain wall
                     elif isinstance(el, Wall):
                         if el.WallType.Kind == WallKind.Curtain:
                             val_in_feet = segment.GetCurve().Length
-                            target_lengths += convert_feet_to_mm(val_in_feet)
+                            target_lengths += convert_feet_to_m(val_in_feet)
         
         return target_lengths
 
