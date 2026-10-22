@@ -62,14 +62,14 @@ planned in the time it takes to loop over it.
 
 import math
 
-from tadpole import classify, corridors, geom, settings, stairs
+from tadpole import arcs, classify, corridors, geom, settings, stairs
 from tadpole.config import (
     APARTMENT_A_MM, APARTMENT_ARM_MM, APARTMENT_AREA_PARAM, APARTMENT_B_MM,
     APARTMENT_BANDS, APARTMENT_BAND_EPS, APARTMENT_B_STRETCH_MM,
     APARTMENT_CORNER_REACH_MM,
     APARTMENT_CORRIDOR_DOOR_MM, APARTMENT_CORRIDOR_FILL_MM,
     APARTMENT_GABLE_REACH_MM, APARTMENT_GAP_SLIVER_MM,
-    APARTMENT_DOOR_MIN_MM,
+    APARTMENT_DOOR_MIN_MM, APARTMENT_DOOR_LEAST_MM,
     APARTMENT_C_MM, APARTMENT_COEFF, APARTMENT_DEAD_ROOF_TYPE,
     APARTMENT_LINK_DEPTH_MM, APARTMENT_LINK_MM, APARTMENT_LIT_MODULE_MM,
     APARTMENT_MODULE_BIAS, APARTMENT_ROOF_TYPES, APARTMENT_SECTION_PARAM,
@@ -1384,7 +1384,57 @@ class Floor(object):
             shaded = min(shaded, span)
             dark += shaded
             lit += span - shaded
+        # THE ROUNDED ENDS (user, 2026-10-20): the stretch of the module line past the walls, lit as the arc is
+        for start, stop, key, share in self.arc_spans(face):
+            lo, hi = max(start, a), min(stop, b)
+            if hi - lo <= 0.01:
+                continue
+            span = (hi - lo) * FT_TO_M
+            lit += span * share
+            dark += span * (1.0 - share)
         return lit, dark, party
+
+    def outward_of(self, side):
+        """The side's outward normal, in plan."""
+        n = (-side['dir'][1], side['dir'][0])
+        middle = centroid(self.plate)
+        if middle[0] * n[0] + middle[1] * n[1] > side['off']:
+            n = (-n[0], -n[1])
+        return n
+
+    def arc_spans(self, side):
+        """[(t0, t1, arc key, lit share)] - the stretches of `side`'s module line past its walls at rounded ends,
+        along its own direction, with the share of their arc in the sun (that of the wall's end beside it when the
+        arc was not studied)."""
+        ends = side.get('arc_ends') or {}
+        if not ends:
+            return []
+        out = []
+        outward = self.outward_of(side)
+        for which, (r, key) in ends.items():
+            if which == 0:
+                start, stop = side['t0'], side.get('wall_t0', side['t0'])
+            else:
+                start, stop = side.get('wall_t1', side['t1']), side['t1']
+            if stop - start <= 0.01:
+                continue
+            share = arcs.arc_lit_share(key, self.level_name, outward)
+            if share is None:
+                share = self._wall_end_lit(side, which)
+            out.append((start, stop, key, share))
+        return out
+
+    def _wall_end_lit(self, side, which):
+        """1.0 or 0.0: is the last metre of `side`'s walls at that end in the sun."""
+        fu = side['dir']
+        edge = side.get('wall_t0' if which == 0 else 'wall_t1', side['t0' if which == 0 else 't1'])
+        lo, hi = (edge, edge + 1.0 / FT_TO_M) if which == 0 else (edge - 1.0 / FT_TO_M, edge)
+        for run, ends in side['runs']:
+            for p, q in self.dark_by_run.get(id(run), []):
+                ds = sorted((p[0] * fu[0] + p[1] * fu[1], q[0] * fu[0] + q[1] * fu[1]))
+                if min(ds[1], hi) - max(ds[0], lo) > 0.1:
+                    return 0.0
+        return 1.0
 
     def shade_spans(self, face, fu, a, b):
         """[(x0, x1, dark)] - the patch cut WHERE THE SHADE STARTS AND STOPS.
@@ -1614,6 +1664,52 @@ class Floor(object):
                     run_ends[id(run)] = ends
                     here = on_edge.setdefault(i, {})
                     here[id(run)] = here.get(id(run), 0.0) + span
+            # AN EDGE ALONG A ROUNDED CORNER is facade too (user, 2026-10-20): counted, as the module line counts it,
+            # by its run along the side it turns least from, and taken into that side's wall at that end, so that a
+            # corner of wall and arc reads as one stretch of windows; lit as the arc is there
+            circle = arcs._circle_of(p, q) if arcs.ARCS else None
+            if circle is None:
+                continue
+            mid = ((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0)
+            out_n = (mid[0] - circle[0], mid[1] - circle[1])
+            norm = math.hypot(*out_n) or 1.0
+            out_n = (out_n[0] / norm, out_n[1] / norm)
+            best = None
+            for side in self.all_sides:
+                if not any(not self.is_inner(run) for run, _ends in side['runs']):
+                    continue
+                n = self.outward_of(side)
+                turn = n[0] * out_n[0] + n[1] * out_n[1]
+                if best is None or turn > best[0]:
+                    best = (turn, side)
+            if best is None or best[0] < math.cos(math.radians(arcs.ARC_FACE_DEG)) - 1e-6:
+                continue
+            side = best[1]
+            fu = side['dir']
+            span = abs((q[0] - p[0]) * fu[0] + (q[1] - p[1]) * fu[1]) * FT_TO_M
+            if span <= 0.0:
+                continue
+            # the wall of that side nearest the arc
+            nearest = None
+            for run, ends in side['runs']:
+                if self.is_inner(run):
+                    continue
+                d = min(math.hypot(e[0] - mid[0], e[1] - mid[1]) for e in ends)
+                if nearest is None or d < nearest[0]:
+                    nearest = (d, run, ends)
+            if nearest is None:
+                continue
+            key = (round(circle[0], 3), round(circle[1], 3), round(circle[2], 3))
+            share = arcs.arc_lit_share(key, self.level_name, out_n, near=mid)
+            if share is None:
+                share = 1.0
+            lit += span * share
+            dark += span * (1.0 - share)
+            run = nearest[1]
+            per_run[id(run)] = per_run.get(id(run), 0.0) + span
+            run_ends[id(run)] = nearest[2]
+            here = on_edge.setdefault(i, {})
+            here[id(run)] = here.get(id(run), 0.0) + span
         return lit, dark, per_run, on_edge, run_ends
 
     def _shared_corners(self, points, per_run, on_edge, run_ends):
@@ -1752,6 +1848,29 @@ class Floor(object):
         if not hits:
             return None
         return max(hits) if upper else min(hits)
+
+    def _plate_path(self, p, q, x_far, tol=0.05):
+        """[(u, v)] - the plate's own corners between its corners `p` and `q` (floor frame), along the stretch of
+        its outline at the end `x_far` (the way round whose corners stand nearest it); [] when either is no corner
+        of the plate or nothing stands between them."""
+        n = len(self.plate_uv)
+        find = lambda w: next((k for k in range(n) if abs(self.plate_uv[k][0] - w[0]) <= tol
+                               and abs(self.plate_uv[k][1] - w[1]) <= tol), None)
+        i, j = find(p), find(q)
+        if i is None or j is None or i == j:
+            return []
+        ahead, back = [], []
+        k = (i + 1) % n
+        while k != j:
+            ahead.append(self.plate_uv[k])
+            k = (k + 1) % n
+        k = (i - 1) % n
+        while k != j:
+            back.append(self.plate_uv[k])
+            k = (k - 1) % n
+        if not ahead or not back:
+            return []                   # neighbours on the outline: one edge joins them, as on a square plate
+        return min((ahead, back), key=lambda path: sum(abs(w[0] - x_far) for w in path) / len(path))
 
     def _long_wall(self, toward):
         """The plate's own long wall standing furthest `toward` (+1 or
@@ -1940,7 +2059,11 @@ class Floor(object):
             p, q = flank
             on = lambda w: p[0] + (w - p[1]) * (q[0] - p[0]) / (q[1] - p[1])
             inner_top, inner_low = (on(facade_v), facade_v), (on(near), near)
-        ring = [inner_top, head,
+        # THE END OF THE PLATE IS WHERE THE PLATE ENDS (user, 2026-10-20, Str200 V1 section 3, 4449722: "та
+        # квартира-пістолетик встала взагалі не по формі плити"). `head` and `tail_a` are the ends of the two long
+        # walls; on a square plate one gable joins them, on a rounded one two arcs and a gable do - and the ring
+        # went straight across, leaving the whole rounded end outside the flat. It follows the plate between them.
+        ring = [inner_top, head] + self._plate_path(head, tail_a, x_far) + [
                 tail_a, tail_b,
                 (tail_b[0], far_v),
                 (link_u, far_v),
@@ -2033,11 +2156,25 @@ def working_floors(floors):
     of flats came out with no facade at all, three dead spaces of seven
     (user, 2026-10-05). It is a threshold and not a count because a
     building's top storey can carry four walls and must not win merely
-    for that."""
+    for that.
+
+    THE SHAPE MOST OF THE SECTION'S FLOORS HAVE comes before the size (user,
+    2026-10-20, ORLK R24-2 section 48: "чому невиведена секція 48?" - its
+    largest storey, Поверх 03, has a wing the five above do not; the plate
+    was not one straight band, the corridor of the section was, and the whole
+    section was left out). A straight section is worked on a straight plate,
+    an L-shaped one on an L-shaped plate; where the floors split evenly, the
+    shape decides nothing."""
+    shapes = {}
+    for (section, _level), floor in floors.items():
+        tally = shapes.setdefault(section, [0, 0])
+        tally[0 if convex(floor.plate) else 1] += 1
     best = {}
     for (section, _level), floor in floors.items():
         size = round(area_m2(floor.plate), 1)
-        rank = (size, 1 if floor.outer_side_count() >= 2 else 0)
+        straight, bent = shapes[section]
+        usual = straight == bent or convex(floor.plate) == (straight > bent)
+        rank = (1 if usual else 0, size, 1 if floor.outer_side_count() >= 2 else 0)
         current = best.get(section)
         if current is None or rank > current[0] or (
                 rank == current[0] and _elev_of(floor) < _elev_of(current[1])):
@@ -3179,25 +3316,40 @@ def fill_corridor_ends(floor, rows, corridor, cuts):
                 lengths.append((gap, excess / 1000.0 / FT_TO_M))
             strict_failed = False
             for length, slack in lengths:
-                whole = slack > 0.0 or length >= gap - 1.0
+                # THE WHOLE GAP IS THE GAP, NOT ANYTHING LONGER. Read as
+                # "at least the gap", every strip past a gap of 0.8 m was
+                # let off with the bare door instead of the 2700 - section
+                # 5's 2k took 5.58 m of band and left 4713519 1004 mm of
+                # wall on the corridor (user, 2026-10-20).
+                whole = slack > 0.0 or abs(length - gap) <= 1.0
                 if strict_failed and not whole:
                     continue
                 step = length / 1000.0 / FT_TO_M
                 s0 = own if at_low else own - step
                 s1 = own + step if at_low else own
-                if not way_out(beside, s0, s1, below,
-                               APARTMENT_DOOR_MIN_MM if whole else None):
-                    if not whole:
-                        strict_failed = True
+                # A STRIP LONGER THAN THE GAP takes corridor away from the
+                # flat across, which keeps the 2700 of frontage. The whole
+                # gap takes only band the corridor never had: the flat
+                # across loses nothing it had, so it cannot veto it - what
+                # it meets of the corridor is the corridor's end's doing
+                # (user, 2026-10-20: a door is 1.8 m; refusing the whole
+                # gap only left a hole beside the corridor).
+                narrow = False
+                if not whole and not way_out(beside, s0, s1, below, None):
+                    strict_failed = True
                     continue
                 # A STRIP THAT STANDS UNDER THE NEXT FLAT'S EDGE leaves that
                 # flat its own door, or it does not stand there
                 # (way_out looks at the flats NOT on the side it is given -
                 # handing it the opposite side checks the flats on ours)
-                if whole and not way_out(
-                        [e for e in beside if e[0] != index],
-                        s0, s1, not below, APARTMENT_DOOR_MIN_MM):
-                    continue
+                if whole:
+                    others = [e for e in beside if e[0] != index]
+                    if not way_out(others, s0, s1, not below,
+                                   APARTMENT_DOOR_MIN_MM):
+                        if not way_out(others, s0, s1, not below,
+                                       APARTMENT_DOOR_LEAST_MM):
+                            continue
+                        narrow = True
                 # THE CORRIDOR IS NOT CUT FOR THIS, it is drawn one number
                 # shorter - so there is nothing here that can go wrong and
                 # nothing to check. The only bound is that its end cannot
@@ -3247,11 +3399,12 @@ def fill_corridor_ends(floor, rows, corridor, cuts):
                     rooms, fits = room_count(
                         raw, (lit_front + dark_front) * 1000.0, bays)
                     room = APARTMENT_BANDS[rooms][1] - raw * APARTMENT_COEFF[rooms]
-                    score = (1 if length >= least - 1.0 else 0,
+                    score = (0 if narrow else 1,
+                             1 if length >= least - 1.0 else 0,
                              1 if fits else 0, round(length, 1), round(room, 2))
                     if best is None or score > best[0]:
                         best = (score, index, ring, rooms, raw, length, fits,
-                                least, gap, own, below)
+                                least, gap, own, below, narrow)
 
         if best is None:
             # SAY WHY, or the gap between a flat and the corridor is found
@@ -3276,10 +3429,13 @@ def fill_corridor_ends(floor, rows, corridor, cuts):
                 u'low' if at_low else u'high', why))
             continue
         (_score, index, ring, rooms, raw, length, fits, least, gap, own,
-         below) = best
+         below, narrow) = best
         short = (u'' if length >= least - 1.0 else
                  u', short of the {0:.0f} it should be - the flat across the '
                  u'band needs its door'.format(least))
+        if narrow:
+            short += u'; a flat beside it keeps a door of only {0:.0f} mm (1800 cannot be had)'.format(
+                APARTMENT_DOOR_LEAST_MM)
         rule = u'{0}; +{1:.0f} mm of the corridor band at the gable{2}{3}'.format(
             rows[index][3], length, short,
             u'' if fits else u' (out of band even so)')
@@ -3384,7 +3540,18 @@ def find_arms(floor, plans, rejected=None):
                                    inward > 0))
         # (one foot past the cut: where the arm and its link are at their widest)
         measured = slice_ if len(slice_) >= 3 else arm
-        width = max(p[0] for p in measured) - min(p[0] for p in measured)
+        lo_u = min(p[0] for p in measured)
+        hi_u = max(p[0] for p in measured)
+        # AND ONLY ALONG THE FAR WALL ITSELF (user, 2026-10-20, Str200 V1 section 3, floors 05 and up: "чому ... ця
+        # квартира не поділилась, скинувши хвіст?"). At a rounded end the tail runs on round the arc to the gable
+        # (`_plate_path`), so the part past the corridor was 3.6 m of tail and 5.4 m of the rounded end - 8.97 m,
+        # read as neither an arm nor a link, and the floors above kept the whole flat. The tail is measured on the
+        # wall it stands against; where the wall runs the whole length, as on a square plate, nothing changes.
+        far_wall = floor._long_wall(inward) if hasattr(floor, '_long_wall') else None
+        if far_wall is not None:
+            w0, w1 = sorted((far_wall[0][0], far_wall[1][0]))
+            lo_u, hi_u = max(lo_u, w0), min(hi_u, w1)
+        width = hi_u - lo_u
         if not (0.5 * APARTMENT_ARM_MM / FT_TO_MM <= width
                 <= 1.6 * APARTMENT_LINK_MM / FT_TO_MM):
             refuse(plan, u'the part past the corridor is {0:.2f} m wide - '
@@ -3689,19 +3856,33 @@ def _split_body(floor, body_xy, min_modules=4, cache=None):
     return parts, note, count
 
 
-def big_flat_splits(target, plans, skip, reviews=None):
+def big_flat_splits(target, plans, skip, reviews=None, corridor=None):
     """[dict(plan, parts, note)] - every flat of the copied group that is
     BIG, a facade of four modules or more on `target`, and that the
     standard scenario of that floor would have cut. `skip` is a set of
     plan ids already dealt with (the L-shaped flats and their neighbours).
     A flat that crosses the corridor's band is an L-shaped flat's business,
-    not this one's (user, 2026-10-05)."""
+    not this one's (user, 2026-10-05).
+
+    EVERY PART KEEPS A DOOR TO THE CORRIDOR (user, 2026-10-19, section 6's
+    4757019: the 3k at the gable held the corridor's band past its end, was
+    cut a+b, and the far 1k had no way out). With `corridor` - the ring the
+    floor's corridor has here - a part that does not touch it is reached by
+    the corridor run on along its band to the part's wall, the strip taken
+    from the part it crosses (`_split_exits`) - but never deeper than
+    CORRIDOR_MAX_WING_M from the core's side, as the corridor is laid in
+    the first place ("коридор може бути не більше 12 м вглиб від боку
+    сходів"). Where that cannot be, the flat stays whole. A record that
+    moved the corridor carries corridor=dict(old, ring): `old` the ring the
+    floor began with, `ring` the one after this cut (they chain)."""
     out = []
     cache = {}
     band = getattr(target, 'band', None)
+    ring = list(corridor) if corridor and len(corridor) >= 3 else None
+    claimed = set()             # flats that gave band back to a run-on corridor
     for plan in plans:
-        if id(plan) in skip or plan.dead or not plan.points or \
-                len(plan.points) < 3:
+        if id(plan) in skip or id(plan) in claimed or plan.dead or \
+                not plan.points or len(plan.points) < 3:
             continue
         if MIX_MARK in (plan.rule or u''):
             continue            # made that size by the mix of the file, on purpose (`mix`)
@@ -3717,13 +3898,263 @@ def big_flat_splits(target, plans, skip, reviews=None):
                 reviews.append(dict(plan=plan, moved=False, why=note,
                                     lit=None, dark=None))
             continue
-        out.append(dict(plan=plan, parts=[read_flat(target, p) for p in parts],
-                        note=note))
+        moved = None
+        given = []
+        if ring is not None:
+            done = set(id(r['plan']) for r in out)
+            others = [o for o in plans if o is not plan and id(o) not in skip and id(o) not in done
+                      and id(o) not in claimed and not o.dead and o.points]
+            cut = parts
+            parts, moved, why, given = _split_exits(target, cut, ring, others)
+            if parts is None:
+                # FEWER PARTS, EACH WITH ITS DOOR, before none at all (user, 2026-10-20, ORLK R24-2 section 22,
+                # 5011754: Поверх 05 cut the 207 m2 flat in four, the far part had no way out, so it stayed whole -
+                # while Поверх 04 below cut the same flat in three)
+                fewer = _fewer_parts(target, cut, ring, others)
+                if fewer is not None:
+                    parts, moved, why2, given = fewer[1]
+                    note += u'; {0} parts, not {1} - the far ones had no way out'.format(len(parts), len(cut))
+                    why = why2
+            if parts is None:
+                if reviews is not None:
+                    reviews.append(dict(plan=plan, moved=False, lit=None, dark=None,
+                                        why=note + u' - but kept whole: ' + why))
+                continue
+            if moved is not None:
+                note += u'; ' + why
+        rec = dict(plan=plan, parts=[read_flat(target, p) for p in parts],
+                   note=note)
+        if moved is not None:
+            rec['corridor'] = dict(old=list(corridor), ring=moved)
+            ring = moved
+        out.append(rec)
+        # THE FLAT THAT GAVE ITS GABLE STRIP BACK is one more record of the
+        # same kind - replaced by its smaller self, and drawn only with the
+        # corridor that needs it (user, 2026-10-20, section 6's 4756409)
+        for other, points in given:
+            claimed.add(id(other))
+            out.append(dict(plan=other, parts=[read_flat(target, points)],
+                            note=u'gave {0:.1f} m2 of the corridor band back: the corridor runs on to a cut '
+                                 u'flat\'s part, and this flat meets its new end'.format(
+                                     area_m2(other.points) - area_m2(points)),
+                            corridor=rec.get('corridor'), gave=True))
         if reviews is not None:
             reviews.append(dict(plan=plan, moved=True, why=note, lit=None,
                                 dark=None))
     return out
 
+
+def _fit_ring(fit, work_corridor):
+    """The corridor ring a floor has after `fit_plate` (None when it has none)."""
+    if fit and fit.get('corridor'):
+        return fit['corridor'].get('ring')
+    ring = getattr(work_corridor, 'points', work_corridor)
+    return ring
+
+
+def transfer_corridor(transfers):
+    """The corridor ring the arm transfers of a floor leave (the last one
+    that moved it), or None when none did."""
+    ring = None
+    for rec in transfers or ():
+        if rec.get('corridor'):
+            ring = rec['corridor']['ring']
+    return ring
+
+
+def split_corridor(splits):
+    """The corridor ring the big splits of a floor leave (the last one that
+    moved it), or None when none did."""
+    ring = None
+    for rec in splits or ():
+        if rec.get('corridor'):
+            ring = rec['corridor']['ring']
+    return ring
+
+
+def _split_exits(target, parts, corridor, others=()):
+    """(parts, ring or None, note, given) - the parts of a big flat cut on
+    `target`, each with a door to the corridor (`corridor`, a ring in
+    feet), or (None, None, why, []) when that cannot be. `given` is
+    [(plan, points)]: the flats of `others` that gave band back.
+
+    THE BAND MAY BELONG TO THE FLAT ACROSS (user, 2026-10-20, section 6's
+    4756409): the gable strip the working floor gave to the end flat of the
+    other row stands between the corridor's end and the cut. That flat gives
+    the strip back to the corridor if it stays the same flat - one piece,
+    the same rooms, a lit module, inside its band when it was - and meets
+    the corridor's new end with a door.
+
+    A part that shares less than a door (APARTMENT_DOOR_MIN_MM) with the
+    corridor is reached by the corridor RUN ON ALONG ITS BAND, from the
+    corridor's end to the part's wall. The strip is taken from the parts of
+    this flat it crosses (and from nothing else: a strip that would cross
+    another flat or leave the flat's ground refuses). The new end may stand
+    no farther than CORRIDOR_MAX_WING_M from the core - or than the
+    corridor reached already, when that was more. Every part must still be
+    a flat with a lit module, in one piece, at its door (user, 2026-10-19)."""
+    from tadpole import lflats, lpoly
+    from tadpole.config import CORRIDOR_MAX_WING_M
+    door_m = APARTMENT_DOOR_MIN_MM / 1000.0
+    parts = [list(p) for p in parts]
+    ring = list(corridor)
+    reach = lambda: [p for p in parts if _shared_edge_m(p, ring) < door_m - 0.01]
+    shut = reach()
+    if not shut:
+        return parts, None, u'', []
+    given = {}                  # id(plan) -> (plan, points now)
+    band = getattr(target, 'band', None)
+    core = stair_points_of(target) if getattr(target, 'stair_uv', None) else []
+    if band is None or not core:
+        return _no_exit(u'a part has no door to the corridor, and the floor has no band or core to run it on')
+    b0, b1 = min(band), max(band)
+    u_of = lambda pts: [to_uv(p, target.u, target.v)[0] for p in pts]
+    cu = u_of(ring)
+    cu0, cu1 = min(cu), max(cu)
+    whole = sum(area_m2(p) for p in parts)
+    for _guard in range(len(parts)):
+        shut = reach()
+        if not shut:
+            break
+        far = shut[0]
+        pu = u_of(far)
+        # A PART ON THE ROW, NOT IN THE BAND, is met along its band edge:
+        # the corridor runs on under it by a door's width, or the two would
+        # touch at a corner only (section 6's 4756409, 2026-10-20)
+        pv = [to_uv(p, target.u, target.v)[1] for p in far]
+        holds = min(pv) < b1 - 0.05 and max(pv) > b0 + 0.05
+        reach_ft = 0.0 if holds else door_m / FT_TO_M
+        if min(pu) >= cu1 - 0.05:
+            ua, ub = cu1, min(pu) + reach_ft
+        elif max(pu) <= cu0 + 0.05:
+            ua, ub = max(pu) - reach_ft, cu0
+        # A PART THE CORRIDOR'S END CUTS SHORT: it meets the corridor, but
+        # over less than a door (section 31's 4549717, 1.07 m, user
+        # 2026-10-20) - the corridor runs on until it has a door's width
+        elif min(pu) < cu0 < max(pu) and max(pu) - door_m / FT_TO_M < cu0:
+            ua, ub = max(pu) - door_m / FT_TO_M, cu0
+        elif min(pu) < cu1 < max(pu) and min(pu) + door_m / FT_TO_M > cu1:
+            ua, ub = cu1, min(pu) + door_m / FT_TO_M
+        else:
+            return _no_exit(u'a part stands beside the corridor, not past its end, and has no door')
+        if ub - ua < 0.05:
+            return _no_exit(u'a part stands at the corridor\'s end but shares no door with it')
+        strip_uv = [(ua, b0), (ub, b0), (ub, b1), (ua, b1)]
+        strip = lpoly.ccw([to_xy(p, target.u, target.v) for p in strip_uv])
+        strip_m2 = area_m2(strip)
+        taken_m2 = 0.0
+        new_parts = []
+        for part in parts:
+            pieces = lpoly.decompose(lpoly.ccw(list(part)))
+            left = lpoly.subtract_all(pieces, [strip])
+            cut_m2 = (lpoly.total_area(pieces) - lpoly.total_area(left)) * FT_TO_M ** 2
+            if cut_m2 < 0.01:
+                new_parts.append(part)
+                continue
+            taken_m2 += cut_m2
+            groups = [g for g in lpoly.components(left) if lpoly.total_area(g) * FT_TO_M ** 2 > 0.5]
+            if len(groups) != 1:
+                return _no_exit(u'the corridor run on to the cut would split a part in two')
+            new_parts.append(_drop_collinear(lpoly.snap(lpoly.outline(groups[0], 1e-3), 0.1)))
+        # what the flat's own parts do not hold may be a gable strip of a
+        # flat across the band, given back (it must stay that flat)
+        if strip_m2 - taken_m2 > 0.05:
+            for other in others:
+                points = given[id(other)][1] if id(other) in given else list(other.points)
+                pieces = lpoly.decompose(lpoly.ccw(list(points)))
+                left = lpoly.subtract_all(pieces, [strip])
+                cut_m2 = (lpoly.total_area(pieces) - lpoly.total_area(left)) * FT_TO_M ** 2
+                if cut_m2 < 0.01:
+                    continue
+                groups = [g for g in lpoly.components(left) if lpoly.total_area(g) * FT_TO_M ** 2 > 0.5]
+                if len(groups) != 1:
+                    return _no_exit(u'the corridor run on to the cut would split the flat across in two')
+                now = _drop_collinear(lpoly.snap(lpoly.outline(groups[0], 1e-3), 0.1))
+                was, read = read_flat(target, points), read_flat(target, now)
+                if read['dead'] or not read['lit_ok'] or read['rooms'] != was['rooms'] or \
+                        (in_band(was['raw'], was['rooms']) and not in_band(read['raw'], read['rooms'])):
+                    return _no_exit(u'the corridor run on to the cut would take {0:.1f} m2 of band from a '
+                                    u'{1}k across, and it would not stay that flat'.format(cut_m2, was['rooms']))
+                given[id(other)] = (other, now)
+                taken_m2 += cut_m2
+        if abs(taken_m2 - strip_m2) > 0.05:
+            return _no_exit((u'the corridor run on to the cut would cross ground that is not this flat\'s '
+                                u'({0:.1f} of {1:.1f} m2 is)'.format(taken_m2, strip_m2)))
+        grown = lpoly.decompose(lpoly.ccw(list(ring))) + [strip]
+        new_ring = _drop_collinear(lpoly.snap(lpoly.outline(grown, 1e-3), 0.1))
+        before = lflats._reach_m(ring, core)
+        after = lflats._reach_m(new_ring, core)
+        if after > max(CORRIDOR_MAX_WING_M, before) + 0.01:
+            return _no_exit((u'the corridor would have to run {0:.1f} m from the core to reach the far part - '
+                                u'over {1:.0f} m'.format(after, CORRIDOR_MAX_WING_M)))
+        parts, ring = new_parts, new_ring
+        cu = u_of(ring)
+        cu0, cu1 = min(cu), max(cu)
+    if reach():
+        return _no_exit(u'a part still has no door to the corridor')
+    for other, now in given.values():
+        if _shared_edge_m(now, ring) < door_m - 0.01:
+            return _no_exit(u'the flat across would not meet the corridor\'s new end with a door')
+    for part in parts:
+        read = read_flat(target, part)
+        if read['dead'] or not read['lit_ok']:
+            return _no_exit(u'a part is no flat once the corridor has run on through it')
+    note = u'the corridor run on {0:.1f} m2 along its band to give every part a door ' \
+                        u'({1:.1f} m from the core)'.format(area_m2(ring) - area_m2(corridor),
+                                                          lflats._reach_m(ring, core))
+    return parts, ring, note, list(given.values())
+
+
+def _fewer_parts(target, parts, ring, others):
+    """`parts` of a big flat, in their order along the section, joined neighbour to neighbour into fewer flats - as
+    many as can be, two at least - every one alive and with its door (`_split_exits`). (groups, exits) or None."""
+    if len(parts) < 3:
+        return None
+    order = sorted(parts, key=lambda p: sum(to_uv(q, target.u, target.v)[0] for q in p) / len(p))
+    n = len(order)
+
+    def compositions(count):
+        """the ways to cut the n parts, in order, into `count` runs - as lists of run lengths"""
+        if count == 1:
+            yield [n]
+            return
+
+        def go(left, runs):
+            if runs == 1:
+                yield [left]
+                return
+            for first in range(1, left - runs + 2):
+                for rest in go(left - first, runs - 1):
+                    yield [first] + rest
+        for c in go(n, count):
+            yield c
+    for count in range(n - 1, 1, -1):
+        for sizes in compositions(count):
+            groups, at, ok = [], 0, True
+            for size in sizes:
+                ring_k = order[at]
+                for nxt in order[at + 1:at + size]:
+                    joined = union_rings(ring_k, nxt) or union_rings(nxt, ring_k)
+                    if joined is None:
+                        ok = False
+                        break
+                    ring_k = _drop_collinear(tidy_ring(joined))
+                at += size
+                if not ok or read_flat(target, ring_k)['dead']:
+                    ok = False
+                    break
+                groups.append(ring_k)
+            if not ok:
+                continue
+            got = _split_exits(target, groups, ring, others)
+            if got[0] is not None:
+                return groups, got
+    return None
+
+
+def _no_exit(why):
+    """`_split_exits`' answer when a part cannot be given its door."""
+    return None, None, why, []
 
 def _drop_collinear(points, tol=1e-4):
     """`points` without the corners that stand on a straight line between
@@ -3750,7 +4181,7 @@ def _drop_collinear(points, tol=1e-4):
     return out
 
 
-def arm_transfers(working, target, plans, reviews=None):
+def arm_transfers(working, target, plans, reviews=None, corridor=None):
     """What the L-shaped flats of `plans` (laid out on `working`) become
     on `target`, a floor whose shade is not the same.
 
@@ -3763,7 +4194,17 @@ def arm_transfers(working, target, plans, reviews=None):
 
     `reviews`, when given, is appended with one dict per L-shaped flat
     looked at - what was found and WHY it was or was not changed - so that
-    "nothing happened" can be read as an answer, not as silence."""
+    "nothing happened" can be read as an answer, not as silence.
+
+    EVERY FLAT IT MAKES KEEPS A DOOR (user, 2026-10-20, section 31's
+    4549717: the neighbour grown by the arm was cut a+b, and the part at
+    the gable met the corridor over 1.07 m - the body's link still held the
+    band there). With `corridor` the parts are given their doors as a big
+    flat's are (`_split_exits`, 1.8 m, the corridor run on at most to
+    CORRIDOR_MAX_WING_M from the core, the band taken only from the pair
+    itself); failing that the neighbour stays whole, and failing that too
+    the arm stays where it was. A record that moved the corridor carries
+    corridor=dict(old, ring), and the rings chain."""
     out = []
     used = set()
     seen = set()
@@ -3775,6 +4216,7 @@ def arm_transfers(working, target, plans, reviews=None):
                                 lit=lit, dark=dark))
 
     refused = []
+    ring_now = list(corridor) if corridor and len(corridor) >= 3 else None
     found = find_arms(working, plans, rejected=refused)
     for plan, why in refused:
         seen.add(id(plan))
@@ -3880,6 +4322,31 @@ def arm_transfers(working, target, plans, reviews=None):
         rec['neighbour_parts'] = [read_flat(target, ring)
                                   for ring in (nb_parts or [merged])]
         rec['neighbour_split'] = nb_note if nb_parts else None
+        if ring_now is not None:
+            body_rings = [p['points'] for p in rec['body_parts']]
+            tries = [(body_rings, [p['points'] for p in rec['neighbour_parts']], rec['neighbour_split'])]
+            if nb_parts:
+                tries.append((body_rings, [merged], None))
+            done = None
+            for body_try, nb_try, nb_split in tries:
+                got, moved, why, _given = _split_exits(target, body_try + nb_try, ring_now)
+                if got is not None:
+                    done = (got[:len(body_try)], got[len(body_try):], nb_split, moved, why)
+                    break
+            if done is None:
+                used.discard(id(neighbour))
+                used.discard(id(plan))
+                if reviews is not None and reviews and reviews[-1].get('plan') is plan:
+                    reviews[-1]['moved'] = False
+                    reviews[-1]['why'] = u'the body has a sunny window here, but the arm stays: ' + why
+                continue
+            body_rings, nb_rings, rec['neighbour_split'], moved, why = done
+            rec['body_parts'] = [read_flat(target, r) for r in body_rings]
+            rec['neighbour_parts'] = [read_flat(target, r) for r in nb_rings]
+            if moved is not None:
+                rec['corridor'] = dict(old=list(corridor), ring=moved)
+                rec['split_note'] = (rec.get('split_note') or u'kept whole') + u'; ' + why
+                ring_now = moved
         out.append(rec)
     # an L-shaped flat the shape test did not recognise is said so, not
     # passed over
@@ -4578,7 +5045,13 @@ def bend_candidates(plans, stair_plans):
     flush = set(item.section for item in stair_plans
                 if u'flush against it' in (item.rule or u''))
     lost = sunless_by_section(plans)
-    return set(s for s in flush if lost.get(s, 0.0) > limit)
+    # A GENTLE BEND whose flats lose anything on the working floor tries the shorter half of its facade too (user,
+    # 2026-10-15: "не виключатимемо що сходова за потреби і на коротшу сторону може встати") - `lay(bend)` puts
+    # its core there, and it is kept only where every unique floor together loses less
+    gentle = set(item.section for item in stair_plans if stairs.GENTLE_MARK in (item.rule or u''))
+    bad = out_of_band_by_section(plans)
+    return set(s for s in flush if lost.get(s, 0.0) > limit) | \
+        set(s for s in gentle if lost.get(s, 0.0) > 0.5 or bad.get(s, 0))
 
 
 def _band_score(plans, section, level_name):
@@ -4716,29 +5189,40 @@ def choose_bend(first, lay, unique_floors=None):
             return lost_after[s] < lost_before[s] - SLIDE_GAIN_M2
         return after.get(s, 0.0) < before.get(s, 0.0) - 1.0 and out_after.get(s, 0) < out_before.get(s, 0)
 
+    gentle = set(item.section for item in first[0] if stairs.GENTLE_MARK in (item.rule or u''))
+
     def numbers(s):
         if lost_before.get(s) is not None and lost_after.get(s) is not None:
+            if s in gentle:
+                return u'; over all unique floors {0:.1f} m2 lost to dead spaces and beyond the bands on the longer ' \
+                       u'half, {1:.1f} on the shorter'.format(lost_before[s], lost_after[s])
             return u'; over all unique floors {0:.1f} m2 lost to dead spaces and beyond the bands on the dark face, ' \
                    u'{1:.1f} at the bend'.format(lost_before[s], lost_after[s])
         return u''
 
+    def said(s, kept_it):
+        if s in gentle:
+            return (u'core {0} the {1} half of its facade (a gentle bend): {2:.1f} m2 of ground without sun and {3} '
+                    u'flat(s) out of their bands on the longer half, {4:.1f} m2 and {5} on the shorter{6}').format(
+                        u'moved to' if kept_it else u'left on', u'shorter' if kept_it else u'longer',
+                        before.get(s, 0.0), out_before.get(s, 0), after.get(s, 0.0), out_after.get(s, 0), numbers(s))
+        if kept_it:
+            return (u'core moved to the bend: on the dark long face it left {0:.1f} m2 of ground without sun and {2} '
+                    u'flat(s) out of their bands, at the bend {1:.1f} m2 and {3}{4}').format(
+                        before.get(s, 0.0), after.get(s, 0.0), out_before.get(s, 0), out_after.get(s, 0), numbers(s))
+        return (u'core left on the dark long face: at the bend {0:.1f} m2 of ground without sun against {1:.1f}, {2} '
+                u'flat(s) out of their bands against {3}{4}').format(
+                    after.get(s, 0.0), before.get(s, 0.0), out_after.get(s, 0), out_before.get(s, 0), numbers(s))
+
     kept = set(s for s in wanted if better(s))
-    refused = [(s, 0.0, u'core left on the dark long face: at the bend {0:.1f} m2 of ground without sun against '
-                        u'{1:.1f}, {2} flat(s) out of their bands against {3}{4}'.format(
-                            after.get(s, 0.0), before.get(s, 0.0), out_after.get(s, 0), out_before.get(s, 0),
-                            numbers(s)))
-               for s in sorted(wanted - kept, key=lambda v: u'{0}'.format(v))]
+    refused = [(s, 0.0, said(s, False)) for s in sorted(wanted - kept, key=lambda v: u'{0}'.format(v))]
     if kept and kept != wanted:
         trial = lay(kept)
         after = sunless_by_section(trial[4])
     if not kept:
         stairs_, corridors_, floors_, moves_, plans_ = first
         return stairs_, corridors_, floors_, list(moves_) + refused, plans_
-    notes = [(s, 0.0, u'core moved to the bend: on the dark long face it left {0:.1f} m2 of '
-                      u'ground without sun and {2} flat(s) out of their bands, at the bend {1:.1f} m2 and {3}{4}'.format(
-                          before.get(s, 0.0), after.get(s, 0.0), out_before.get(s, 0), out_after.get(s, 0),
-                          numbers(s)))
-             for s in sorted(kept, key=lambda v: u'{0}'.format(v))]
+    notes = [(s, 0.0, said(s, True)) for s in sorted(kept, key=lambda v: u'{0}'.format(v))]
     stairs_, corridors_, floors_, moves_, plans_ = trial
     return stairs_, corridors_, floors_, list(moves_) + notes + refused, plans_
 
@@ -4795,12 +5279,13 @@ def section_misses(work, targets, plans_here, work_corridor, work_stair, weight_
             fit = fit_plate(target, plans_here, work_corridor, work_stair)
             gone = set(id(o) for rec in fit['flats'] for o in rec['old'])
             free = [p for p in plans_here if id(p) not in gone]
-            transfers = arm_transfers(work, target, free)
+            transfers = arm_transfers(work, target, free, corridor=_fit_ring(fit, work_corridor))
             skip = set()
             for rec in transfers:
                 skip.add(id(rec['body']))
                 skip.add(id(rec['neighbour']))
-            splits = big_flat_splits(target, free, skip)
+            splits = big_flat_splits(target, free, skip, corridor=transfer_corridor(transfers)
+                                     or _fit_ring(fit, work_corridor))
             for rec in splits:
                 skip.add(id(rec['plan']))
             dead_recs = dead_changes(target, free, skip)
@@ -4850,15 +5335,21 @@ def _target_flats(work, target, plans_here, work_corridor, work_stair, target_co
             out = flats([p for p in plans_here if id(p) not in old])
             out += [(0 if q['dead'] else q['rooms'], q['raw'], q['dead']) for q in change['parts']]
             return out
+        party = party_wall_changes(work, target, plans_here, work_corridor)
+        if party:
+            old = set(id(o) for o in party['old'])
+            return flats([p for p in plans_here if id(p) not in old]) + [
+                (0 if q['dead'] else q['rooms'], q['raw'], q['dead']) for q in party['parts']]
         fit = fit_plate(target, plans_here, work_corridor, work_stair)
         gone = set(id(o) for rec in fit['flats'] for o in rec['old'])
         free = [p for p in plans_here if id(p) not in gone]
-        transfers = arm_transfers(work, target, free)
+        transfers = arm_transfers(work, target, free, corridor=_fit_ring(fit, work_corridor))
         skip = set()
         for rec in transfers:
             skip.add(id(rec['body']))
             skip.add(id(rec['neighbour']))
-        splits = big_flat_splits(target, free, skip)
+        splits = big_flat_splits(target, free, skip, corridor=transfer_corridor(transfers)
+                                 or _fit_ring(fit, work_corridor))
         for rec in splits:
             skip.add(id(rec['plan']))
         dead_recs = dead_changes(target, free, skip)
@@ -4889,6 +5380,96 @@ def _target_flats(work, target, plans_here, work_corridor, work_stair, target_co
     return out
 
 
+# A FLAT'S FACADE TURNED PARTY WALL ON ANOTHER UNIQUE FLOOR (user, 2026-10-16 and 2026-10-19, rule B, ORLK section 13:
+# from the second residential floor up 16.4 m of the core's long side abuts a neighbour; the flats were laid on the
+# floor below, where that side is facade, and copied up - "nothing changes on this floor" - a 3k with 3.99 m of window
+# left, a 3k with none). A floor where a flat of the first group loses this much of its facade to a party wall is
+# not the first group's copy: its flats are laid again on its own walls.
+PARTY_LOST_M = 1.0
+
+# `lay(target)` -> ([ApartmentPlan] of that floor laid on its own walls, the corridor ring after) - set by the
+# script before the mix (`plan` needs the walls and the plans it holds), with `_PARTY_LAID` emptied; None leaves
+# rule B off
+PARTY_RELAY = None
+_PARTY_LAID = {}
+
+
+def facade_lost(work, target, plans_here):
+    """[(plan, facade m on the working floor, facade m here)] - the first group's flats whose facade on `target` is
+    a party wall, on the same plate (a smaller plate is `fit_plate`'s)."""
+    out = []
+    if work is None or target is None or work is target:
+        return out
+    try:
+        from tadpole import lflats
+        if not lflats.same_plate(getattr(work, 'plate', None), getattr(target, 'plate', None)):
+            return out
+    except Exception:
+        return out
+    for p in plans_here:
+        if p.dead or not p.points or len(p.points) < 3:
+            continue
+        try:
+            lw, dw, _bw = work.frontage(p.points)
+            lt, dt, _bt = target.frontage(p.points)
+        except Exception:
+            continue
+        if (lw + dw) - (lt + dt) >= PARTY_LOST_M:
+            out.append((p, lw + dw, lt + dt))
+    return out
+
+
+def party_wall_changes(work, target, plans_here, work_corridor, lay=None):
+    """Rule B: None where no flat of the first group loses its facade to a party wall on `target`, else the floor
+    laid again on its own walls as {old, parts, corridor, kept, note, party} - the shape `l_floor_changes` gives,
+    carried out by `apply_l_changes`. Flats that come out the same as the first group's are kept."""
+    lay = lay or PARTY_RELAY
+    if lay is None:
+        return None
+    lost = facade_lost(work, target, plans_here)
+    if not lost:
+        return None
+    key = (getattr(target, 'section', None), getattr(target, 'level_name', None))
+    if key not in _PARTY_LAID:
+        try:
+            _PARTY_LAID[key] = lay(target)
+        except Exception:
+            _PARTY_LAID[key] = None
+    got = _PARTY_LAID.get(key)
+    if not got:
+        return None
+    laid, ring = got
+    rows = [q for q in laid if q.level_name == target.level_name and q.points and len(q.points) >= 3
+            and not getattr(q, 'skipped', False)]
+    if not rows:
+        return None
+    free = list(plans_here)
+    fresh = []
+    kept = 0
+    for q in rows:
+        match = next((p for p in free
+                      if p.points and _ring_key(p.points) == _ring_key(q.points)
+                      and bool(p.dead) == bool(q.dead) and (p.dead or p.rooms == q.rooms)), None)
+        if match is not None:
+            free.remove(match)
+            kept += 1
+            continue
+        fresh.append(dict(points=q.points, rooms=0 if q.dead else q.rooms, raw=q.raw_m2,
+                          area=0.0 if q.dead else q.raw_m2 * APARTMENT_COEFF.get(q.rooms, 0.0),
+                          sunny=q.sunny, dead=bool(q.dead), fits=True, rule=q.rule))
+    corridor = None
+    if work_corridor and ring and _ring_key(ring) != _ring_key(work_corridor):
+        corridor = dict(old=work_corridor, ring=list(ring))
+    if not free and not fresh and corridor is None:
+        return None
+    return dict(old=free, parts=fresh, corridor=corridor, kept=kept, party=True,
+                note=u'a facade turned party wall on this floor ({0}) - the flats laid again on its own walls: '
+                     u'{1} kept, {2} replaced by {3}{4}'.format(
+                         u'; '.join(u'{0}k {1:.1f} m2: facade {2:.1f} -> {3:.1f} m'.format(
+                             p.rooms, p.raw_m2, a, b) for p, a, b in lost),
+                         kept, len(free), len(fresh), u'; the corridor cut differently' if corridor else u''))
+
+
 def target_state(work, target, plans_here, work_corridor, work_stair, target_corridor, is_l):
     """(flats, corridor) of the unique floor `target` as the rules for the other floors make it - `_target_flats` with
     the outlines, for the mix of the file (`mix`): flats = [dict(points, rooms, raw, dead, sunny, rule, part)], `part`
@@ -4913,15 +5494,21 @@ def target_state(work, target, plans_here, work_corridor, work_stair, target_cor
             old = set(id(o) for o in change['old'])
             ring = change['corridor']['ring'] if change.get('corridor') else work_corridor
             return kept([p for p in plans_here if id(p) not in old]) + made(change['parts']), ring
+        party = party_wall_changes(work, target, plans_here, work_corridor)
+        if party:
+            old = set(id(o) for o in party['old'])
+            ring = party['corridor']['ring'] if party.get('corridor') else work_corridor
+            return kept([p for p in plans_here if id(p) not in old]) + made(party['parts']), ring
         fit = fit_plate(target, plans_here, work_corridor, work_stair)
         gone = set(id(o) for rec in fit['flats'] for o in rec['old'])
         free = [p for p in plans_here if id(p) not in gone]
-        transfers = arm_transfers(work, target, free)
+        transfers = arm_transfers(work, target, free, corridor=_fit_ring(fit, work_corridor))
         skip = set()
         for rec in transfers:
             skip.add(id(rec['body']))
             skip.add(id(rec['neighbour']))
-        splits = big_flat_splits(target, free, skip)
+        splits = big_flat_splits(target, free, skip, corridor=transfer_corridor(transfers)
+                                 or _fit_ring(fit, work_corridor))
         for rec in splits:
             skip.add(id(rec['plan']))
         dead_recs = dead_changes(target, free, skip)
@@ -4948,6 +5535,7 @@ def target_state(work, target, plans_here, work_corridor, work_stair, target_cor
             replaced.add(id(o))
         out += made(rec['parts'], u'dead space or a flat gone dark, read again')
     ring = fit['corridor']['ring'] if fit.get('corridor') and fit['corridor'].get('ring') else work_corridor
+    ring = split_corridor(splits) or transfer_corridor(transfers) or ring
     return kept([p for p in plans_here if id(p) not in replaced]) + out, ring
 
 
@@ -5066,6 +5654,12 @@ def choose_slides(first, outer_walls, inner_walls, records, darkloft, unique_flo
         if stop[0] or step_of(index)(0, 1):
             break                       # cancelled: the sections not yet tried keep the rules' place
         if section not in by_section:
+            continue
+        # A CORE AT AN ABUTMENT STAYS WHERE THE RULE PUTS IT, 2/3 into the junction (user, 2026-10-19, rule A,
+        # ORLK section 13: "чому сходова не поставилася тут в перетин вглиб на 2/3?" - the slide took it 1.91 m
+        # along its side, all of it into the party stretch, to bring one 3k into its band, and on six floors of seven
+        # that 3k lost its facade to the party wall anyway). The flats are laid round the core, not the other way.
+        if any((getattr(s, 'rule', None) or u'').startswith(u'abutment') for s in by_section[section]):
             continue
         if not convex(floor.plate):
             # AN L-SHAPED SECTION WHOSE CORE STANDS FLUSH ON A LONG FACE slides along that face too (user,
@@ -5343,6 +5937,338 @@ def _slide_l_section(section, floor, floors_, stairs_here, plans_, corridors_, o
         if getattr(item, 'rule', None):
             item.rule = u'{0}; {1}'.format(item.rule, note)
     return stairs_s, corridors_s, floors_s, plans_s, note
+
+
+# ----------------------------------------------------------------------
+# the core to the opposite side, where the user asks for it
+# ----------------------------------------------------------------------
+#
+# THE CORE MAY GO TO THE OPPOSITE LONG SIDE (user, 2026-10-16: "нам треба налаштувати можливість переставляти сходову
+# на протилежний бік для тих секцій де це можливо - меридіональних, рядових, без примикань, і де сходова не на всю
+# темну північну сторону. має після генерації з'являтися вікно, яке пропонуватиме переставити сходову на протилежний
+# бік в такі секції, але залишаючи для неї ті ж модулі і тд, щоб це не впливало на відсоток квартирограії"; the rules
+# agreed the same day, "пиши"). A section is offered when
+#   - it is straight: a rectangle-like (convex) plate, not an L, not a gentle bend;
+#   - its core stands on a long side - an abutment's too, a party wall along a side is no bar (the user, the same
+#     day: "в секціях 60, 70, 71, 53, 40, 42 уже могли б вони ставитись на інший бік спокійно") - not flush at the end
+#     of a smaller plate;
+#   - it is meridional: its long axis within FLIP_MERIDIONAL_DEG of north-south (the long sides face east and west);
+#   - the side the core stands on is not dark from end to end on the working floor (the flats that go there need a
+#     lit window);
+#   - it can be laid with the core on the other side - the same place along the section, so the same modules either
+#     side of it: the whole floor mirrored, else laid again. The way that moves the section's 1k / 2k / 3k over all
+#     its unique floors least is offered; where they still change, the window shows the change and she decides.
+
+FLIP_MERIDIONAL_DEG = 45.0     # the long axis this near north-south is meridional; the others are offered with a
+                               # warning (`warn` in the offer)
+FLIP_FLUSH_FT = 0.5            # a core this near a long side stands on it
+FLIP_PARTY_DEG = 10.0          # a party wall this near the long axis runs along a long side
+FLIP_NOTE = u'moved to the opposite long side at the user\'s choice: the same place along the section, the same ' \
+            u'modules either side of it'
+
+
+def _north_vec(north_deg):
+    """True north in the project's plan coordinates, as the sun study turns it (`sun.sun_vectors`)."""
+    from tadpole.config import SUN_NORTH_SIGN
+    theta = math.radians((north_deg or 0.0) * SUN_NORTH_SIGN)
+    return (-math.sin(theta), math.cos(theta))
+
+
+def _compass(vec, north_deg):
+    """'північ', 'північний схід', ... - where `vec` points."""
+    n = _north_vec(north_deg)
+    e = (n[1], -n[0])
+    bearing = math.degrees(math.atan2(vec[0] * e[0] + vec[1] * e[1], vec[0] * n[0] + vec[1] * n[1])) % 360.0
+    names = (u'північ', u'північний схід', u'схід', u'південний схід', u'південь', u'південний захід', u'захід',
+             u'північний захід')
+    return names[int((bearing + 22.5) // 45.0) % 8]
+
+
+def _replace_section(first, section, stairs_s, corridors_s, floors_s, plans_s, note=None):
+    """`first` with `section`'s stairs, corridors, floors and plans replaced (and a line for the report)."""
+    stairs_, corridors_, floors_, moves_, plans_ = first
+    out_floors = dict((k, v) for k, v in floors_.items() if k[0] != section)
+    out_floors.update(floors_s)
+    moves = list(moves_) + ([(section, 0.0, note)] if note else [])
+    return ([s for s in stairs_ if s.section != section] + list(stairs_s),
+            [c for c in corridors_ if c.section != section] + list(corridors_s),
+            out_floors, moves,
+            [p for p in plans_ if p.section != section] + list(plans_s))
+
+
+def section_mix(laid, section, unique_floors):
+    """{1: n, 2: n, 3: n, 0: dead spaces} - the flats of `section` over ALL its unique floors, each floor counted as
+    many times as it has levels, the other floors as the rules for them make them (`_target_flats`). None when a floor
+    cannot be read."""
+    stairs_, corridors_, floors_, _moves, plans_ = laid
+    wf = working_floors(floors_).get(section)
+    if wf is None:
+        return None
+    here = [p for p in plans_ if p.section == section and p.level_name == wf.level_name
+            and not getattr(p, 'skipped', False) and p.points and len(p.points) >= 3]
+    if not here:
+        return None
+    buckets = unique_floors.get(section, [])
+    weight = lambda name: next((len(u.levels) for u in buckets if name in u.levels), 1)
+    counts = {0: 0, 1: 0, 2: 0, 3: 0}
+
+    def add(rooms, dead, w):
+        key = 0 if dead or not rooms else min(3, int(rooms))
+        counts[key] = counts.get(key, 0) + w
+
+    for p in here:
+        add(p.rooms, p.dead, weight(wf.level_name))
+    work_cor = next((c for c in corridors_ if c.section == section and c.level_name == wf.level_name), None)
+    work_stair = next((s for s in stairs_ if s.section == section and s.level_name == wf.level_name), None)
+    is_l = bool(work_cor is not None and getattr(work_cor, 'is_l', False))
+    for target in remaining_floors(floors_, unique_floors, {section: wf.level_name}).get(section, []):
+        t_cor = next((c for c in corridors_ if c.section == section and c.level_name == target.level_name), None)
+        got = _target_flats(wf, target, here, work_cor.points if work_cor is not None else None,
+                            work_stair.points if work_stair is not None else None,
+                            t_cor.points if t_cor is not None else None, is_l)
+        if got is None:
+            return None
+        for rooms, _raw, dead in got:
+            add(rooms, dead, weight(target.level_name))
+    return counts
+
+
+def flip_candidates(first, outer_walls, inner_walls, records, darkloft, unique_floors, north_deg, progress=None):
+    """([offer], [(section, why)]) - the straight sections whose core may go to the opposite long side, each `offer`
+    dict(section, laid=(stairs, corridors, floors, plans) with the core there, side_from, side_to, mix, lost_before,
+    lost_after); and why the other straight sections are not offered."""
+    stairs_, corridors_, floors_, moves_, plans_ = first
+    work = working_floors(floors_)
+    by_section = {}
+    for item in stairs_:
+        by_section.setdefault(item.section, []).append(item)
+    offers, refused = [], []
+    north = _north_vec(north_deg)
+    order = sorted(work.items(), key=lambda kv: u'{0}'.format(kv[0]))
+    for index, (section, floor) in enumerate(order):
+        if progress is not None and progress(index, len(order)):
+            break
+        if section not in by_section or not floor.plate or not convex(floor.plate):
+            continue                                        # an L-shaped section: not this rule's
+        stair = next((s for s in by_section[section] if s.level_name == floor.level_name), None)
+        if stair is None or not stair.points:
+            continue
+        rule = stair.rule or u''
+        # (a core at an abutment may go across too - user, 2026-10-16, sections 70 and 71: "уже могли б вони
+        # ставитись на інший бік спокійно")
+        if u'flush at the' in rule:
+            refused.append((section, u'the core stands flush at the end of a smaller plate'))
+            continue
+        plate = list(floor.plate)
+        edges = [(plate[k], plate[(k + 1) % len(plate)]) for k in range(len(plate))]
+        a, b = max(edges, key=lambda e: math.hypot(e[1][0] - e[0][0], e[1][1] - e[0][1]))
+        length = math.hypot(b[0] - a[0], b[1] - a[1])
+        u = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+        n = (-u[1], u[0])
+        # meridional: the long axis near north-south. A SECTION WHOSE LONG SIDES FACE NORTH AND SOUTH IS OFFERED TOO,
+        # WITH A WARNING (user, 2026-10-19: "давай ще дамо можливість перегенерюватися сходовій на другий бік і в
+        # північно-південних секціях, але з певним попередженням, що квартири точно стануть гірші"): the core goes to
+        # the sunny side there, and the window says so with the flats before and after
+        faces = (_compass(n, north_deg), _compass((-n[0], -n[1]), north_deg))
+        warn = abs(u[0] * north[0] + u[1] * north[1]) < math.cos(math.radians(FLIP_MERIDIONAL_DEG))
+        # the core on a long side: across the section, where the plate and the core stand
+        proj = lambda p: p[0] * n[0] + p[1] * n[1]
+        pmin, pmax = min(proj(p) for p in plate), max(proj(p) for p in plate)
+        cmin, cmax = min(proj(p) for p in stair.points), max(proj(p) for p in stair.points)
+        if abs(cmin - pmin) <= FLIP_FLUSH_FT:
+            along, shift, outward = n, pmax - cmax, (-n[0], -n[1])
+        elif abs(pmax - cmax) <= FLIP_FLUSH_FT:
+            along, shift, outward = (-n[0], -n[1]), cmin - pmin, n
+        else:
+            refused.append((section, u'the core does not stand on a long side'))
+            continue
+        # the side it stands on is not dark from end to end (on the working floor)
+        level_runs = [r for r in outer_walls if r.record.section == section and r.level_name == floor.level_name]
+        core_off = pmin if outward == (-n[0], -n[1]) else pmax
+        # the metres of the under-lit STRETCHES on it (the non-insolated walls' own), not whole runs by their mean
+        # hours (user, 2026-10-16, report: 40's east wall of 33.90 m was called dark from end to end with 26.92 m
+        # of it under-lit)
+        dark_all = False
+        for side in stairs.sides_of(level_runs):
+            if abs(side['dir'][0] * u[0] + side['dir'][1] * u[1]) < math.cos(math.radians(FLIP_PARTY_DEG)):
+                continue
+            mid = side['runs'][0][1][0]
+            if abs(proj(mid) - core_off) > 1.0:
+                continue
+            on_side = set(id(r) for r, _ends in side['runs'])
+            dark_m = sum(abs(st.b - st.a) for st in darkloft if id(st.run) in on_side) * 0.3048
+            if dark_m >= side['length_m'] - 0.3:
+                dark_all = True
+        if dark_all and not warn:
+            # (a north-south section's north side is dark end to end as a rule - that is why the core is there; the
+            # warning says what moving it costs)
+            refused.append((section, u'the side the core stands on ({0}) is dark from end to end'.format(
+                _compass(outward, north_deg))))
+            continue
+        # THE WHOLE FLOOR MIRRORED across the section's middle line first - the core, the corridor and every flat on
+        # the other side in the same shapes, so the same modules and the same mix by construction; where a flat would
+        # lose its lit window or a room there, the section laid again with the core there instead
+        mid = (pmin + pmax) / 2.0
+        tried, ways = [], []
+        for how in (u'mirrored', u'laid again'):
+            try:
+                if how == u'mirrored':
+                    got, why = _mirror_section(first, section, n, mid, outer_walls, inner_walls, records, darkloft)
+                else:
+                    got, why = lay_section(section, shift, by_section[section], outer_walls, inner_walls, records,
+                                           darkloft, along), None
+            except Exception as error:
+                got, why = None, u'{0}'.format(error)[:80]
+            if got is not None:
+                why, before, after = _flip_problem(first, section, got, unique_floors)
+            if why is not None:
+                tried.append(u'{0}: {1}'.format(how, why))
+                continue
+            moved = sum(abs(before.get(k, 0) - after.get(k, 0)) for k in (0, 1, 2, 3))
+            ways.append((moved, len(ways), how, got, before, after))
+            if moved == 0:
+                break                       # the mix kept: no need to try the other way
+        if not ways:
+            refused.append((section, u'; '.join(tried)))
+            continue
+        # the way that moves the mix least, the mirror of equals; a changed mix is shown in the window, not refused
+        # (user, 2026-10-16: "уже могли б вони ставитись на інший бік спокійно" - 42 and 60 among them)
+        _moved, _k, how, got, mix_before, mix_after = min(ways)
+        stairs_s, corridors_s, floors_s, plans_s = got
+        for item in stairs_s:
+            item.rule = u'{0}; {1} ({2})'.format(item.rule or u'', FLIP_NOTE, how)
+        trial = _replace_section(first, section, stairs_s, corridors_s, floors_s, plans_s)
+        try:
+            lost_before, lost_after = section_lost(first, section, unique_floors), section_lost(trial, section,
+                                                                                                unique_floors)
+        except Exception:
+            lost_before = lost_after = None
+        offers.append(dict(section=section, laid=got, how=how, side_from=_compass(outward, north_deg),
+                           side_to=_compass((-outward[0], -outward[1]), north_deg),
+                           mix=mix_before, mix_after=mix_after,
+                           mix_changed=any(mix_before.get(k, 0) != mix_after.get(k, 0) for k in (0, 1, 2, 3)),
+                           lost_before=lost_before, lost_after=lost_after,
+                           warn=warn, faces=faces))
+    return offers, refused
+
+
+def _flip_problem(first, section, got, unique_floors):
+    """(why not, mix before, mix after) for the section laid as `got` (stairs, corridors, floors, plans): why it
+    cannot be offered - a floor lost, the core out of a plate, the floors not countable - or None, with the section's
+    1k / 2k / 3k / dead over all its unique floors before and after (shown in the window when they differ)."""
+    stairs_, corridors_, floors_, _moves, _plans = first
+    stairs_s, corridors_s, floors_s, plans_s = got
+    if set(l for (sec, l) in floors_ if sec == section) != set(l for (sec, l) in floors_s if sec == section) or any(
+            getattr(p, 'skipped', False) for p in plans_s):
+        return u'a floor of it cannot be laid', None, None
+    for item in stairs_s:
+        f = floors_s.get((section, item.level_name))
+        if f is None or not f.plate or not all(_inside_plate(p, f.plate, 0.3) for p in item.points):
+            return u'the core would leave the plate of a floor', None, None
+    trial = _replace_section(first, section, stairs_s, corridors_s, floors_s, plans_s)
+    try:
+        before, after = section_mix(first, section, unique_floors), section_mix(trial, section, unique_floors)
+    except Exception:
+        before = after = None
+    if before is None or after is None:
+        return u'its floors could not be counted', None, None
+    return None, before, after
+
+
+def _mirror_section(first, section, n, mid, outer_walls, inner_walls, records, darkloft):
+    """((stairs, corridors, floors, plans), None) - `section` mirrored across the line p . n = mid (its middle, along
+    its long sides): the cores, the corridors (outline, recipe, trims) and the working floor's flats on the other
+    side in the same shapes, the floors read again around them - or (None, why) where a flat would leave its plate,
+    lose its lit module or change its rooms on the other facade."""
+    import copy
+    stairs_, corridors_, floors_, _moves, plans_ = first
+
+    def m(p):
+        d = p[0] * n[0] + p[1] * n[1] - mid
+        return (p[0] - 2.0 * d * n[0], p[1] - 2.0 * d * n[1])
+
+    def ring(points):
+        return [m(p) for p in reversed(list(points))]
+
+    def reflect(d):
+        k = d[0] * n[0] + d[1] * n[1]
+        return (d[0] - 2.0 * k * n[0], d[1] - 2.0 * k * n[1])
+
+    stairs_s = []
+    for s in stairs_:
+        if s.section == section:
+            c = copy.copy(s)
+            c.points = ring(s.points)
+            stairs_s.append(c)
+    corridors_s = []
+    for cor in corridors_:
+        if cor.section != section:
+            continue
+        c = copy.copy(cor)
+        c.points = ring(cor.points)
+        if getattr(cor, 'straight_points', None):
+            c.straight_points = ring(cor.straight_points)
+        # a trim p . d = off (keep one side) mirrors to p . R(d) = off - 2 mid (n . d)
+        c.trims = [(reflect(d), off - 2.0 * mid * (d[0] * n[0] + d[1] * n[1]), keep)
+                   for d, off, keep in (getattr(cor, 'trims', None) or [])]
+        recipe = dict(cor.recipe) if getattr(cor, 'recipe', None) else None
+        if recipe:
+            v = recipe.get('v')
+            s_ = (v[0] * n[0] + v[1] * n[1]) if v else 0.0
+            if v and abs(abs(s_) - 1.0) < 1e-6:
+                # the band's axis and the core's notch, across it: b -> 2 mid s - b
+                recipe['v_axis'] = 2.0 * mid * s_ - recipe['v_axis']
+                if recipe.get('stair'):
+                    recipe['stair'] = [(q[0], 2.0 * mid * s_ - q[1]) for q in recipe['stair']]
+            else:
+                recipe = None               # a band not along the section: no redraw from it after the mirror
+        c.recipe = recipe
+        corridors_s.append(c)
+    outer_s = [r for r in outer_walls if r.record.section == section]
+    inner_s = [r for r in inner_walls if r.record.section == section]
+    records_s = [r for r in records if getattr(r, 'section', None) == section]
+    dark_s = [d for d in darkloft if d.run.record.section == section]
+    floors_s = floors_of(outer_s, inner_s, stairs_s, corridors_s, records_s, dark_s)
+    plans_s = []
+    for p in plans_:
+        if p.section != section:
+            continue
+        c = copy.copy(p)
+        if p.points and len(p.points) >= 3:
+            c.points = ring(p.points)
+            floor = floors_s.get((section, p.level_name))
+            if floor is None or not floor.plate:
+                return None, u'floor {0} is not read again'.format(p.level_name)
+            if not all(_inside_plate(q, floor.plate, 0.3) for q in c.points):
+                return None, u'a flat would leave the plate'
+            if not p.dead:
+                got = read_flat(floor, c.points)
+                if got['dead'] or got['rooms'] != p.rooms or not got['lit_ok']:
+                    return None, u'a {0}k of {1:.1f} m2 would {2} on the other facade'.format(
+                        p.rooms, p.raw_m2, u'lose its lit window' if not got['lit_ok'] or got['dead']
+                        else u'read as a {0}k'.format(got['rooms']))
+                c.sunny = got['sunny']
+        c.l_body = None
+        plans_s.append(c)
+    return (stairs_s, corridors_s, floors_s, plans_s), None
+
+
+def _inside_plate(p, plate, tol):
+    from tadpole import lplate
+    return lplate._inside(p, plate, tol)
+
+
+def apply_flips(first, offers, chosen):
+    """`first` with the core of every section in `chosen` on the opposite side (`flip_candidates`' offers)."""
+    out = first
+    for offer in offers:
+        if offer['section'] not in chosen:
+            continue
+        stairs_s, corridors_s, floors_s, plans_s = offer['laid']
+        out = _replace_section(out, offer['section'], stairs_s, corridors_s, floors_s, plans_s,
+                               note=u'core {0} ({1} -> {2}); the mix of the section unchanged'.format(
+                                   FLIP_NOTE, offer['side_from'], offer['side_to']))
+    return out
 
 
 # ----------------------------------------------------------------------
@@ -5633,12 +6559,7 @@ def _create_roof(doc, item, level, roof_type, variant, method):
     from Autodesk.Revit.DB import CurveArray, Line, XYZ
     from tadpole import roofs
     z = level.Elevation
-    array = CurveArray()
-    count = len(item.points)
-    for i in range(count):
-        a = item.points[i]
-        b = item.points[(i + 1) % count]
-        array.Append(Line.CreateBound(XYZ(a[0], a[1], z), XYZ(b[0], b[1], z)))
+    array = geom.footprint_array(item.points, z)
     roof, mapper = roofs.call_variant(variant or 'direct4_instance', doc,
                                       array, level, roof_type, method=method)
     roofs._flatten(roof, mapper)
@@ -5738,8 +6659,32 @@ def _replace(doc, copy, old_plans, wanted, level, roof_types, variant, method):
     return None
 
 
+def _redraw_corridor(doc, copy, old_ring, new_ring, section, level, corridor_type, variant, method):
+    """The corridor of an ungrouped copy drawn again as `new_ring`. Inside the caller's transaction. Returns None, or
+    why it could not be."""
+    from System.Collections.Generic import List
+    from Autodesk.Revit.DB import ElementId
+    old = copy.find(old_ring)
+    if old is None:
+        return u'the corridor was not found in the copy'
+    if corridor_type is None:
+        return u'no corridor roof type'
+    try:
+        new = _create_corridor(doc, new_ring, section, level, corridor_type, variant, method)
+        gone = List[ElementId]()
+        gone.Add(old)
+        doc.Delete(gone)
+        copy.taken.add(old)
+        copy.created.append(new.Id)
+        copy.boxes[new.Id] = _roof_box(doc, new.Id)
+    except Exception as error:
+        return u'{0}'.format(error)[:120]
+    return None
+
+
 def apply_arm_transfers(doc, transfers, member_ids, level, roof_types,
-                        variant=None, method=None, copy=None):
+                        variant=None, method=None, copy=None, section=None,
+                        corridor_type=None):
     """Carry out `arm_transfers` on the roofs of an ungrouped copy: the
     L-shaped flat's body (cut in parts where it is big) and the flat beside
     it (cut as well, if the arm made it big) replace the old pair.
@@ -5749,7 +6694,18 @@ def apply_arm_transfers(doc, transfers, member_ids, level, roof_types,
         method = roofs.find_creation_method(doc)
     copy = copy or CopiedFlats(doc, member_ids)
     results = []
+    # the corridor first, once, as the last transfer that moved it left it; the transfers that need it wait on it
+    moved = [rec for rec in transfers if rec.get('corridor')]
+    no_corridor = None
+    if moved:
+        why = _redraw_corridor(doc, copy, moved[0]['corridor']['old'], moved[-1]['corridor']['ring'], section,
+                               level, corridor_type, variant, method)
+        if why:
+            no_corridor = u'the corridor could not be run on ({0}) - the arm stays'.format(why)
     for rec in transfers:
+        if rec.get('corridor') and no_corridor:
+            results.append((rec, no_corridor))
+            continue
         wanted = []
         for part in rec['body_parts']:
             wanted.append((part, rec['body'],
@@ -5770,15 +6726,45 @@ def apply_arm_transfers(doc, transfers, member_ids, level, roof_types,
 
 
 def apply_big_splits(doc, splits, member_ids, level, roof_types,
-                     variant=None, method=None, copy=None):
+                     variant=None, method=None, copy=None, section=None,
+                     corridor_type=None):
     """Carry out `big_flat_splits`: each big flat is replaced by its parts.
+    When a cut ran the corridor on (a part's door, `_split_exits`), the
+    corridor is drawn again FIRST, once, as the last such cut left it; if
+    that cannot be done, the flats that needed it stay whole.
     Returns [(split, None or reason)]."""
+    from System.Collections.Generic import List
+    from Autodesk.Revit.DB import ElementId
     from tadpole import roofs
     if method is None:
         method = roofs.find_creation_method(doc)
     copy = copy or CopiedFlats(doc, member_ids)
     results = []
+    moved = [rec for rec in splits if rec.get('corridor')]
+    no_corridor = None
+    if moved:
+        old = copy.find(moved[0]['corridor']['old'])
+        if old is None:
+            no_corridor = u'the corridor was not found in the copy - the flat is kept whole'
+        elif corridor_type is None:
+            no_corridor = u'no corridor roof type - the flat is kept whole'
+        else:
+            try:
+                new = _create_corridor(doc, moved[-1]['corridor']['ring'], section, level,
+                                       corridor_type, variant, method)
+                gone = List[ElementId]()
+                gone.Add(old)
+                doc.Delete(gone)
+                copy.taken.add(old)
+                copy.created.append(new.Id)
+                copy.boxes[new.Id] = _roof_box(doc, new.Id)
+            except Exception as error:
+                no_corridor = u'the corridor could not be drawn again ({0}) - the flat is kept whole'.format(
+                    error)[:160]
     for rec in splits:
+        if rec.get('corridor') and no_corridor:
+            results.append((rec, no_corridor))
+            continue
         wanted = [(part, rec['plan'], rec['note']) for part in rec['parts']]
         why = _replace(doc, copy, [rec['plan']], wanted, level, roof_types,
                        variant, method)
@@ -5875,6 +6861,26 @@ FIT_TOL_M2 = 0.3        # less than this sticking out past the plate is not
 FIT_GONE_M2 = 0.5       # less than this left inside it is not a piece at all
 
 
+def _hull(points):
+    """The convex hull of `points`, counter-clockwise (monotone chain)."""
+    pts = sorted(set((round(p[0], 6), round(p[1], 6)) for p in points))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
 def _fitted(ring, plate):
     """`ring` cut to a CONVEX plate - [] when nothing of it is left."""
     out = dedupe(clip_to(ring, plate))
@@ -5897,6 +6903,159 @@ def _outside(point, ring, tol=0.15):
         d = math.hypot(point[0] - (a[0] + t * dx), point[1] - (a[1] + t * dy))
         best = d if best is None else min(best, d)
     return best is None or best > tol
+
+
+def _gable_band_after_fit(target, corridor, items, stair_points=None, gifts=None, original=None, plans=None):
+    """The corridor ring once its end at a gable of `target` - where the cut to the plate left it standing against
+    the wall - has gone to the flat at that end, or None when nothing changed. `items` are `fit_plate`'s [plan,
+    ring, cut, state, absorbed]; the flat that takes the strip gets its new ring there, `gifts` {id(plan): mm}.
+
+    As `fill_corridor_ends` does on the working floor: up to APARTMENT_CORRIDOR_FILL_MM of the band, the flat across
+    the band keeping APARTMENT_CORRIDOR_DOOR_MM of its frontage on the corridor, the corridor in one piece and
+    clear of the core; of the flats at that end, the one that comes out a flat, in its band if it can.
+
+    ONLY WHERE THE WORKING FLOOR GAVE IT TOO: an end at which a flat held the band past the corridor's end there.
+    A corridor that ran flush into the gable on the working floor runs flush into the new one."""
+    band = getattr(target, 'band', None)
+    if band is None or not corridor or len(corridor) < 3:
+        return None
+    b0, b1 = min(band), max(band)
+    uv = lambda p: to_uv(p, target.u, target.v)
+    xy = lambda p: to_xy(p, target.u, target.v)
+    cu = [uv(p)[0] for p in corridor]
+    cu0, cu1 = min(cu), max(cu)
+    plate_uv = [uv(p) for p in target.plate]
+
+    def wall_at(v, low):
+        """where the plate ends along u on the line at `v`, at the low or the high end - the gable may lean
+        (section 6 of Str200, floor 03: the long walls 16.82 and 19.95 m), so each band line has its own"""
+        hits = []
+        for k in range(len(plate_uv)):
+            p, q = plate_uv[k], plate_uv[(k + 1) % len(plate_uv)]
+            if (p[1] - v) * (q[1] - v) <= 0.0 and abs(q[1] - p[1]) > 1e-9:
+                hits.append(p[0] + (v - p[1]) * (q[0] - p[0]) / (q[1] - p[1]))
+        if len(hits) < 2:
+            return None
+        return min(hits) if low else max(hits)
+    if wall_at((b0 + b1) / 2.0, True) is None:
+        return None
+    core_u = [uv(p)[0] for p in (stair_points or [])]
+    door_ft = APARTMENT_CORRIDOR_DOOR_MM / FT_TO_MM
+    changed = False
+    ou = [uv(p)[0] for p in (original or corridor)]
+
+    def band_reach(ring, line, low):
+        """how far `ring`'s edges on the band line v = line reach along u, at the low or the high end"""
+        pts = [uv(p) for p in ring]
+        ends = []
+        for k in range(len(pts)):
+            p, q = pts[k], pts[(k + 1) % len(pts)]
+            if abs(p[1] - line) < 0.1 and abs(q[1] - line) < 0.1:
+                ends += [p[0], q[0]]
+        if not ends:
+            return None
+        return min(ends) if low else max(ends)
+    for low in (True, False):
+        walls = [wall_at(line, low) for line in (b0, b1)]
+        if None in walls:
+            continue
+        reach = [band_reach(corridor, line, low) for line in (b0, b1)]
+        if None in reach or any(abs(r - w) > 0.3 for r, w in zip(reach, walls)):
+            continue                    # the corridor does not reach the wall at this end
+        edge = min(walls) if low else max(walls)
+        oc = min(ou) if low else max(ou)
+        held = False
+        for pl in plans or ():
+            if not pl.points or pl.dead:
+                continue
+            pts = [uv(p) for p in pl.points]
+            vs = [p[1] for p in pts]
+            us = [p[0] for p in pts]
+            if min(vs) < b1 - 0.1 and max(vs) > b0 + 0.1 and                     ((min(us) < oc - 0.3) if low else (max(us) > oc + 0.3)):
+                held = True
+                break
+        if not held:
+            continue                    # the working floor's corridor ran into the gable here: so does this one
+        live = [it for it in items if it[3] in (u'whole', u'cut') and not it[0].dead]
+
+        def on_band(ring, line):
+            """the u-extent of `ring`'s edges lying on the band line v = line"""
+            spans = []
+            pts = [uv(p) for p in ring]
+            for k in range(len(pts)):
+                p, q = pts[k], pts[(k + 1) % len(pts)]
+                if abs(p[1] - line) < 0.1 and abs(q[1] - line) < 0.1:
+                    spans.append(tuple(sorted((p[0], q[0]))))
+            if not spans:
+                return None
+            return min(s[0] for s in spans), max(s[1] for s in spans)
+        sides = []
+        for it in live:
+            for line, wall in zip((b0, b1), walls):
+                ext = on_band(it[1], line)
+                if ext is None:
+                    continue
+                reach_it = ext[0] if low else ext[1]
+                if abs(reach_it - wall) < 0.6:
+                    sides.append((it, line, ext))
+        best = None
+        for it, line, ext in sides:
+            across = [(o, l2, e2) for o, l2, e2 in sides if l2 != line] + \
+                [(o, l2, on_band(o[1], l2)) for o in live for l2 in (b0, b1)
+                 if l2 != line and on_band(o[1], l2) is not None and not any(o is s[0] for s in sides)]
+            from tadpole import lpoly
+            pieces = lpoly.decompose(lpoly.ccw(list(corridor)))
+            out_n = (-target.u[0], -target.u[1]) if low else (target.u[0], target.u[1])
+            mid_wall = (walls[0] + walls[1]) / 2.0
+            length_mm = APARTMENT_CORRIDOR_FILL_MM
+            while length_mm >= 900.0:
+                length = length_mm / FT_TO_MM
+                cut_u = mid_wall + length if low else mid_wall - length
+                s0, s1 = (edge, cut_u) if low else (cut_u, edge)
+                length_mm -= 100.0
+                if core_u and s1 > min(core_u) - 0.05 and s0 < max(core_u) + 0.05:
+                    continue            # the core's own stretch of the corridor stays corridor
+                # the corridor past the line square to it at `length` from the gable's middle - a leaning gable
+                # (section 6 floor 03) keeps its lean on the strip, and the strip is corridor by construction
+                at = xy((cut_u, (b0 + b1) / 2.0))
+                taken = lpoly.clip(pieces, at, out_n)
+                left = lpoly.clip(pieces, at, (-out_n[0], -out_n[1]))
+                if not taken or not left:
+                    continue
+                strip = _drop_collinear(lpoly.snap(lpoly.outline(taken, 1e-3), 0.1))
+                if not strip or len(strip) < 3 or area_m2(strip) < 0.5:
+                    continue
+                groups = [g for g in lpoly.components(left) if lpoly.total_area(g) * FT_TO_M ** 2 > 0.5]
+                if len(groups) != 1:
+                    continue
+                cor_after = _drop_collinear(lpoly.snap(lpoly.outline(groups[0], 1e-3), 0.1))
+                if any(_shared_edge_m(o[1], cor_after) < door_ft * FT_TO_M - 0.01 <= _shared_edge_m(o[1], corridor)
+                       for o, _l, _e in across):
+                    continue            # the flat across keeps its door
+                merged = union_rings(it[1], strip) or union_rings(strip, it[1])
+                if merged is None:
+                    continue
+                merged = _drop_collinear(tidy_ring(merged))
+                got = read_flat(target, merged)
+                if got['dead']:
+                    continue
+                score = (1 if in_band(got['raw'], got['rooms']) else 0, round(length, 2))
+                if best is None or score > best[0]:
+                    best = (score, it, merged, cor_after, length * FT_TO_MM)
+                break
+        if best is None:
+            continue
+        _score, it, merged, cor_after, mm = best
+        it[1] = merged
+        it[2] = True
+        it[3] = u'cut'
+        if gifts is not None:
+            gifts[id(it[0])] = mm
+        corridor = cor_after
+        cu = [uv(p)[0] for p in corridor]
+        cu0, cu1 = min(cu), max(cu)
+        changed = True
+    return corridor if changed else None
 
 
 def _reach_across_end(target, ring, corridor, others):
@@ -5973,6 +7132,144 @@ def _reach_across_end(target, ring, corridor, others):
     return merged, item, new_cor, depth * 304.8
 
 
+def _take_from_neighbour(target, ring, other, low, corridor=None, reach_m=3.0):
+    """(ring, other, mm): `ring`, too small for a flat, grown into `other` beside it along the section's axis - the
+    wall between them moved, over `ring`'s own depth only - until it is a flat of `low` m2; `other` keeps being a
+    flat, and its door if it had one. None when no such move does it."""
+    from tadpole import lpoly
+    uv = lambda p: to_uv(p, target.u, target.v)
+    xy = lambda p: to_xy(p, target.u, target.v)
+    ru = [uv(p)[0] for p in ring]
+    rv = [uv(p)[1] for p in ring]
+    ou = [uv(p)[0] for p in other]
+    v0, v1 = min(rv), max(rv)
+    ahead = sum(ou) / len(ou) > sum(ru) / len(ru)
+    wall = max(ru) if ahead else min(ru)
+    if not any(abs(u - wall) < 0.05 for u in ou):
+        return None                     # not beside it across a wall square to the axis
+    pieces = lpoly.decompose(lpoly.ccw(list(other)))
+    door_m = APARTMENT_DOOR_MIN_MM / 1000.0
+    had_door = corridor is not None and _shared_edge_m(other, corridor) >= door_m - 0.01
+
+    def attempt(depth_ft):
+        far = wall + depth_ft if ahead else wall - depth_ft
+        lo, hi = min(wall, far), max(wall, far)
+        rect = lpoly.ccw([xy((lo, v0)), xy((hi, v0)), xy((hi, v1)), xy((lo, v1))])
+        strip = []
+        for pc in pieces:
+            part = [pc]
+            for a, b in zip(rect, rect[1:] + rect[:1]):
+                part = lpoly.clip(part, a, lpoly.left_normal(a, b))
+            strip += part
+        if not strip or lpoly.total_area(strip) * FT_TO_M ** 2 < 0.05:
+            return None
+        rest = lpoly.subtract_all(pieces, [rect])
+        rest = [g for g in lpoly.components(rest) if lpoly.total_area(g) * FT_TO_M ** 2 > 0.5]
+        if len(rest) != 1:
+            return None
+        grown = lpoly.decompose(lpoly.ccw(list(ring))) + strip
+        if len(lpoly.components(grown)) != 1:
+            return None
+        new_ring = _drop_collinear(lpoly.snap(lpoly.outline(grown, 1e-3), 0.1))
+        new_other = _drop_collinear(lpoly.snap(lpoly.outline(rest[0], 1e-3), 0.1))
+        if len(new_ring) < 3 or len(new_other) < 3:
+            return None
+        return new_ring, new_other
+    lo, hi, best = 0.0, reach_m / FT_TO_M, None
+    for _step in range(25):
+        mid = (lo + hi) / 2.0
+        got = attempt(mid)
+        if got is not None and read_flat(target, got[0])['area'] >= low + APARTMENT_BAND_EPS + 0.2:
+            best, hi = (got, mid), mid
+        else:
+            lo = mid
+    if best is None:
+        return None
+    (new_ring, new_other), depth = best
+    mine, theirs = read_flat(target, new_ring), read_flat(target, new_other)
+    if mine['dead'] or theirs['dead'] or theirs['area'] < low or theirs['rooms'] < 1:
+        return None
+    if had_door and _shared_edge_m(new_other, corridor) < door_m - 0.01:
+        return None
+    return new_ring, new_other, depth * FT_TO_MM
+
+
+def _small_chains(items, reads):
+    """`fit_plate`'s pieces too small for a flat that still hold a lit module, in runs of two or more that touch one
+    another (0.5 m of shared wall or more)."""
+    small = [it for it in items if it[3] == u'small' and not it[0].dead
+             and not reads.get(id(it[0]), {}).get('dead', True)]
+    chains, seen = [], set()
+    for start in small:
+        if id(start) in seen:
+            continue
+        chain, todo = [], [start]
+        seen.add(id(start))
+        while todo:
+            it = todo.pop()
+            chain.append(it)
+            for other in small:
+                if id(other) not in seen and _shared_edge_m(it[1], other[1]) >= 0.5:
+                    seen.add(id(other))
+                    todo.append(other)
+        if len(chain) >= 2:
+            chains.append(chain)
+    return chains
+
+
+def _recut_chain(target, chain, reads, low, corridor=None):
+    """The ground of `chain` (see `_small_chains`) cut square to the section's axis into as many flats of at least
+    `low` m2 as it holds - fewer than the pieces, at least one - each alive, and each with a door on `corridor` where
+    every piece had one. [read_flat] or None."""
+    from tadpole import lpoly
+    total = sum(reads[id(it[0])]['area'] for it in chain)
+    count = int((total + 1e-6) // low)
+    if count < 1 or count >= len(chain):
+        return None
+    pieces = []
+    for it in chain:
+        pieces += lpoly.decompose(lpoly.ccw(list(it[1])))
+    if len(lpoly.components(pieces)) != 1:
+        return None
+    ax = target.u
+    us = [to_uv(p, target.u, target.v)[0] for it in chain for p in it[1]]
+    u0, u1 = min(us), max(us)
+    whole = lpoly.total_area(pieces)
+
+    def below(uc):
+        return lpoly.total_area(lpoly.clip(pieces, to_xy((uc, 0.0), target.u, target.v), (-ax[0], -ax[1])))
+    cuts = [u0]
+    for k in range(1, count):
+        want, lo, hi = whole * k / count, u0, u1
+        for _step in range(40):
+            mid = (lo + hi) / 2.0
+            if below(mid) < want:
+                lo = mid
+            else:
+                hi = mid
+        cuts.append((lo + hi) / 2.0)
+    cuts.append(u1)
+    door_m = APARTMENT_DOOR_MIN_MM / 1000.0
+    doors = corridor is not None and all(_shared_edge_m(it[1], corridor) >= door_m - 0.01 for it in chain)
+    out = []
+    for k in range(count):
+        part = lpoly.clip(pieces, to_xy((cuts[k], 0.0), target.u, target.v), ax) if k else pieces
+        if k < count - 1:
+            part = lpoly.clip(part, to_xy((cuts[k + 1], 0.0), target.u, target.v), (-ax[0], -ax[1]))
+        if not part or len(lpoly.components(part)) != 1:
+            return None
+        ring = _drop_collinear(lpoly.snap(lpoly.outline(part, 1e-3), 0.1))
+        if len(ring) < 3:
+            return None
+        got = read_flat(target, ring)
+        if got['dead'] or got['area'] < low - 0.5:
+            return None
+        if doors and _shared_edge_m(ring, corridor) < door_m - 0.01:
+            return None
+        out.append(got)
+    return out
+
+
 def fit_plate(target, plans, corridor_points=None, stair_points=None,
               reviews=None):
     """What the copied group becomes on a floor whose PLATE IS SMALLER than
@@ -6038,6 +7335,13 @@ def fit_plate(target, plans, corridor_points=None, stair_points=None,
     if corridor_points and len(corridor_points) >= 3:
         cor_ring = _fitted(corridor_points, plate) or None
         cor_cut = (area_m2(corridor_points) - (area_m2(cor_ring) if cor_ring else 0.0)) > FIT_TOL_M2
+        if result['stair_outside']:
+            # THE CORE STANDS OUTSIDE THIS FLOOR'S PLATE, and the corridor keeps its way to it (user, 2026-10-21,
+            # section 66: "цю сходову і коридор треба вписувати поза плиту") - cut to the hull of the plate and the
+            # core, not past the plate's own gables
+            reach = _hull(list(plate) + list(stair_points))
+            cor_ring = _fitted(corridor_points, reach) or list(corridor_points)
+            cor_cut = (area_m2(corridor_points) - area_m2(cor_ring)) > FIT_TOL_M2
 
     reads = {}
     for item in items:
@@ -6047,6 +7351,23 @@ def fit_plate(target, plans, corridor_points=None, stair_points=None,
             r = reads[id(plan)]
             if r['dead'] or r['area'] < low:
                 item[3] = u'small'
+
+    # A ROW OF PIECES TOO SMALL, ONE BESIDE THE NEXT, IS CUT AGAIN INTO FEWER FLATS - not glued one by one to the big
+    # flat they touch (user, 2026-10-20, ORLK R24-2 section 22, Поверх 06: the plate 2 m narrower, the three 1k of
+    # the row cut to 31-35 m2, all three added to the 2k beside them - a 3k of 188.7 m2: "на нижніх поверхах є 1к,
+    # які ти чомусь злив до гігантських 3к")
+    recut = []
+    for chain in _small_chains(items, reads):
+        parts = _recut_chain(target, chain, reads, low, cor_ring)
+        if parts is None:
+            continue
+        for item in chain:
+            item[3] = u'recut'
+        recut.append((chain, parts))
+        for item in chain:
+            note(item[0], True, u'cut to the plate, too small for a flat ({0:.1f} m2): the {1} pieces beside each '
+                                u'other cut again into {2} flat(s)'.format(reads[id(item[0])]['raw'], len(chain),
+                                                                          len(parts)), reads[id(item[0])])
 
     lonely = []
     for item in items:
@@ -6066,6 +7387,21 @@ def fit_plate(target, plans, corridor_points=None, stair_points=None,
             lonely.append(item)
             continue
         neighbour = best[1]
+        # A PIECE JUST SHORT OF A FLAT TAKES THE REST FROM ITS NEIGHBOUR - the wall between them moved - rather
+        # than going into it whole (user, 2026-10-20, ORLK R24-2 section 22, 5012214: on Поверх 06, lit from end to
+        # end, a 1k cut to 41.8 m2 by the narrower plate went into the 2k beside it - a 3k of 129 m2)
+        took = _take_from_neighbour(target, ring, neighbour[1], low, cor_ring) \
+            if not reads[id(plan)]['dead'] and not neighbour[0].dead else None
+        if took is not None:
+            item[1], neighbour[1], mm = took
+            item[3] = u'cut'
+            neighbour[2] = True
+            neighbour[3] = u'cut'
+            note(plan, True, u'cut to the plate, too small for a flat ({0:.1f} m2): the wall with the {1}k beside '
+                             u'it moved {2:.0f} mm to make it one'.format(reads[id(plan)]['raw'],
+                                                                          neighbour[0].rooms, mm),
+                 reads[id(plan)])
+            continue
         merged = union_rings(ring, neighbour[1]) or \
             union_rings(neighbour[1], ring)
         if merged is None:
@@ -6113,6 +7449,46 @@ def fit_plate(target, plans, corridor_points=None, stair_points=None,
         item[3] = u'cut'
         note(plan, True, u'cut to the plate, too small for a flat, but no '
                          u'flat beside it to give it to', reads[id(plan)])
+    # THE CORRIDOR CUT AT THE NEW GABLE gives its end to the flat there, as the working floor's did (user,
+    # 2026-10-20, Str200 V1 section 1, group C: "чому ... коридор сягає торця, а не додається частиною до однієї з
+    # квартир?" - the floor below is 5 m shorter, the end flats that held the band at the gables were cut off with
+    # it, and the corridor, cut to the plate, ran on to the wall)
+    gifts = {}
+    if cor_ring and cor_cut:
+        cor_ring = _gable_band_after_fit(target, cor_ring, items, stair_points, gifts,
+                                         original=corridor_points, plans=plans) or cor_ring
+    # A BIG FLAT CUT TO THE PLATE IS STILL A BIG FLAT: the module rule cuts it as on any other floor (user,
+    # 2026-10-20, ORLK R24-2 section 22, 5013077: the 207 m2 flat cut to the 15 x 16 m plate of Поверх 07 came out a
+    # 3k of 123 m2, 23.7 m of its facade in the sun - the big-flat cut only looked at the flats the plate left alone)
+    split_recs = []
+    for item in items:
+        plan, ring, cut, state, absorbed = item
+        if state != u'cut' or not cut or plan.dead or cor_ring is None or MIX_MARK in (plan.rule or u''):
+            continue
+        got = read_flat(target, ring)
+        top = APARTMENT_BANDS.get(got['rooms'], (0.0, 1e9))[1] + APARTMENT_BAND_EPS
+        if got['dead'] or got['area'] <= top:
+            continue
+        parts, how, count = split_body(target, ring)
+        if parts is None or count is None or count < 4:
+            continue
+        exits = _split_exits(target, parts, cor_ring, [])
+        if exits[0] is None:
+            fewer = _fewer_parts(target, parts, cor_ring, [])
+            exits = fewer[1] if fewer is not None else exits
+        if exits[0] is None:
+            note(plan, True, u'cut to the plate, {0} - but kept whole: {1}'.format(how, exits[2]), got)
+            continue
+        if exits[1] is not None:
+            cor_ring = exits[1]
+            reached = True
+        item[3] = u'split'
+        split_recs.append(dict(
+            kind=u'cut', old=[plan] + absorbed, parts=[read_flat(target, p) for p in exits[0]], neighbour=plan,
+            note=u'cut to the plate of this floor, then {0}: cut in {1} by the module rule{2}'.format(
+                how, len(exits[0]), u'; ' + exits[2] if exits[1] is not None else u'')))
+        note(plan, True, u'cut to the plate, {0}: cut in {1} by the module rule'.format(how, len(exits[0])), got)
+    result['flats'] += split_recs
     for plan, ring, cut, state, absorbed in items:
         if state == u'gone':
             result['flats'].append(dict(
@@ -6126,14 +7502,21 @@ def fit_plate(target, plans, corridor_points=None, stair_points=None,
             result['flats'].append(dict(
                 kind=u'cut', old=[plan] + absorbed, parts=[read],
                 neighbour=plan,
-                note=(u'cut to the plate of this floor{0}'.format(
+                note=(u'cut to the plate of this floor{0}{1}'.format(
                     u', with {0} too small piece(s) added'.format(len(absorbed))
-                    if absorbed else u''))))
+                    if absorbed else u'',
+                    u'; +{0:.0f} mm of the corridor band at the new gable'.format(gifts[id(plan)])
+                    if id(plan) in gifts else u''))))
             if not absorbed and plan.dead is False:
                 note(plan, True, u'cut to the plate: {0}k {1:.1f} m2 now '
                                  u'(was {2}k {3:.1f} m2)'.format(
                                      read['rooms'], read['raw'], plan.rooms,
                                      plan.raw_m2), read)
+    for chain, parts in recut:
+        result['flats'].append(dict(
+            kind=u'cut', old=[item[0] for item in chain], parts=parts, neighbour=chain[0][0],
+            note=u'cut to the plate of this floor; {0} pieces too small for a flat, beside each other, cut again '
+                 u'into {1}'.format(len(chain), len(parts))))
 
     if corridor_points and len(corridor_points) >= 3 and (cor_cut or reached):
         result['corridor'] = dict(old=corridor_points, ring=cor_ring or None)
@@ -6176,6 +7559,7 @@ def apply_plate_fit(doc, fit, member_ids, level, roof_types, section=None,
                 copy.taken.add(old)
                 if new is not None:
                     copy.created.append(new.Id)
+                    copy.boxes[new.Id] = _roof_box(doc, new.Id)
             except Exception as error:
                 why = u'{0}'.format(error)[:120]
         results.append((dict(kind=u'corridor', old=[], parts=[],
@@ -6189,11 +7573,7 @@ def _create_corridor(doc, ring, section, level, roof_type, variant, method):
     from Autodesk.Revit.DB import CurveArray, Line, XYZ
     from tadpole import roofs
     z = level.Elevation
-    array = CurveArray()
-    count = len(ring)
-    for i in range(count):
-        a, b = ring[i], ring[(i + 1) % count]
-        array.Append(Line.CreateBound(XYZ(a[0], a[1], z), XYZ(b[0], b[1], z)))
+    array = geom.footprint_array(ring, z)
     roof, mapper = roofs.call_variant(variant or 'direct4_instance', doc, array,
                                       level, roof_type, method=method)
     roofs._flatten(roof, mapper)
@@ -6228,9 +7608,11 @@ def changes_signature(transfers, splits, dead_recs, fit=None, blind=None,
     for rec in transfers:
         items.append((u'arm', id(rec['body']), id(rec['neighbour']),
                       _parts_key(rec['body_parts']),
-                      _parts_key(rec['neighbour_parts'])))
+                      _parts_key(rec['neighbour_parts']),
+                      _ring_key(rec['corridor']['ring']) if rec.get('corridor') else None))
     for rec in splits:
-        items.append((u'split', id(rec['plan']), _parts_key(rec['parts'])))
+        items.append((u'split', id(rec['plan']), _parts_key(rec['parts']),
+                      _ring_key(rec['corridor']['ring']) if rec.get('corridor') else None))
     for rec in dead_recs:
         items.append((u'dead', tuple(sorted(id(o) for o in rec['old'])),
                       _parts_key(rec['parts'])))
@@ -6479,6 +7861,13 @@ def l_floor_changes(working_plans, target, corridor_ring, core_points,
     # A FINGER OF A FLAT GOES TO THE FLAT BESIDE IT OR TO THE CORRIDOR (user, 2026-10-14, section 28)
     rows_cut, corridor_cut = lflats.give_fingers(target, core_points, rows_cut, corridor_cut, split_notes,
                                                  corridor_was=corridor_ring)
+    # A GENTLE BEND: THE STRIP UNDER A MODULE BETWEEN THE CORE AND THE BREAK GOES TO THE FLAT BESIDE IT - on this floor
+    # too, where that flat has the sun the first floor's had not (user, 2026-10-16, ORLK V1.2 section 54, dead space
+    # 4549287: on З_04 its neighbour was a dead space as well, on З_05..З_08 a 1k - and the strip was copied on dead)
+    strip = lflats._break_strip(target, target.plate, core_points, dict(rows=list(rows_cut), corridor=corridor_cut))
+    if strip is not None and len(strip['rows']) < len(rows_cut):
+        split_notes.append(u'a strip under a module at the break taken into the flat beside it')
+        rows_cut = list(strip['rows'])
     # THE BITES GIVEN BACK where the neighbour's door does not need them (user, 2026-10-09, section 59)
     # (only on a floor that differs from the first one anyway: the same sun and the same corridor, the first
     # group is copied as it is)
@@ -6544,7 +7933,8 @@ def apply_l_changes(doc, rec, member_ids, level, roof_types, section=None,
               for part in rec['parts']]
     why = _replace(doc, copy, rec['old'], wanted, level, roof_types, variant,
                    method)
-    results.append((dict(kind=u'L-shaped flats', old=rec['old'],
+    results.append((dict(kind=u'flats laid again (a facade turned party wall)' if rec.get('party')
+                         else u'L-shaped flats', old=rec['old'],
                          parts=rec['parts'], note=rec['note']), why))
     corridor = rec.get('corridor')
     if corridor:

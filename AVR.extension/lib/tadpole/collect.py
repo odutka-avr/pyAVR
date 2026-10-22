@@ -131,6 +131,87 @@ class Result(object):
     def section_keys(self):
         return [s.key for s in self.sections]
 
+    def unnumbered(self):
+        """The housing slabs with no section number - Tadpole lays flats section by section, so these cannot be
+        laid (user, 2026-10-20, Str200 V1)."""
+        return [r for r in self.of_section(NO_SECTION) if r.use_class == u'section']
+
+    def duplicates(self, share=0.5):
+        """[(kept, extra)] - housing slabs of ONE section on ONE level whose plans overlap by more than `share` of the
+        smaller one: a slab modelled twice (user, 2026-10-20, Str200 V1 section 1, floor 04 - its facade counted
+        twice, 16 modules where there were 8, and the whole section laid wrong)."""
+        def box(record):
+            try:
+                bb = record.element.get_BoundingBox(None)
+                return (bb.Min.X, bb.Min.Y, bb.Max.X, bb.Max.Y)
+            except Exception:
+                return None
+
+        def key(element_id):
+            value = getattr(element_id, 'Value', None)
+            return value if value is not None else element_id.IntegerValue
+
+        groups = {}
+        for record in self.records:
+            if record.use_class != u'section' or not record.section or record.level_id is None:
+                continue
+            groups.setdefault((record.section, key(record.level_id)), []).append(record)
+        out = []
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            boxes = [(r, box(r)) for r in group]
+            extra = set()
+            for i in range(len(boxes)):
+                for j in range(i + 1, len(boxes)):
+                    (a, ba), (b, bb) = boxes[i], boxes[j]
+                    if ba is None or bb is None or id(b) in extra or id(a) in extra:
+                        continue
+                    w = min(ba[2], bb[2]) - max(ba[0], bb[0])
+                    h = min(ba[3], bb[3]) - max(ba[1], bb[1])
+                    if w <= 0.0 or h <= 0.0:
+                        continue
+                    small = min((ba[2] - ba[0]) * (ba[3] - ba[1]), (bb[2] - bb[0]) * (bb[3] - bb[1]))
+                    if small > 0.0 and w * h >= share * small:
+                        out.append((a, b))
+                        extra.add(id(b))
+        return out
+
+    def drop_records(self, records):
+        """Leave `records` out of this run, as if they were not in the model. Returns how many."""
+        gone = set(id(r) for r in records)
+        if not gone:
+            return 0
+        keep = lambda rs: [r for r in rs if id(r) not in gone]
+        self.records = keep(self.records)
+        for key in list(self.by_class):
+            self.by_class[key] = keep(self.by_class[key])
+        for key in list(self.by_category):
+            self.by_category[key] = keep(self.by_category[key])
+        for section in self.sections:
+            section.records = keep(section.records)
+        self.sections = [s for s in self.sections if s.records]
+        self.by_section = dict((s.key, s) for s in self.sections)
+        return len(gone)
+
+    def drop_unnumbered(self):
+        """Leave the housing slabs with no section number out of this run, as if they were not in the model
+        ("проігнорити і натиснути далі", user, 2026-10-20). Returns how many were left out."""
+        gone = set(id(r) for r in self.unnumbered())
+        if not gone:
+            return 0
+        keep = lambda records: [r for r in records if id(r) not in gone]
+        self.records = keep(self.records)
+        for key in list(self.by_class):
+            self.by_class[key] = keep(self.by_class[key])
+        for key in list(self.by_category):
+            self.by_category[key] = keep(self.by_category[key])
+        for section in self.sections:
+            section.records = keep(section.records)
+        self.sections = [s for s in self.sections if s.records]
+        self.by_section = dict((s.key, s) for s in self.sections)
+        return len(gone)
+
 
 # ----------------------------------------------------------------------
 

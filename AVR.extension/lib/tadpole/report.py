@@ -26,6 +26,145 @@ def _sqm(value_sqft):
     return '{0:.1f}'.format(value_sqft * SQFT_TO_SQM)
 
 
+# THE REPORT IN THE COMPANY'S STYLE (user, 2026-10-16: "звіт теж у стиль компанії") - the AVR Design System's
+# web-app layer: monochrome, black the only strong colour, 2 px corners, 1 px hairlines; Roboto for text, Roboto
+# Condensed in capitals for headings and column names; the title on a black banner with white capitals at the right
+# edge, every section opened by a numbered black chip. pyRevit's output window is Internet Explorer: plain CSS only
+# (no variables, no grid), so the tokens are written out.
+AVR_CSS = u"""
+body { background: #E9EAEC; color: #171C21; font-family: Roboto, Tahoma, sans-serif; font-size: 10pt;
+       counter-reset: avrsec; }
+.entry { padding-left: 16px; padding-right: 16px; }
+p, li { line-height: 1.45; }
+h1 { background: #171C21; color: #FFFFFF; text-align: right; text-transform: uppercase; letter-spacing: 1px;
+     font-family: "Roboto Condensed", "Arial Narrow", Tahoma, sans-serif; font-weight: normal; font-size: 13pt;
+     padding: 9px 16px; margin: 0 0 14px 0; }
+h2 { counter-increment: avrsec; color: #171C21; text-transform: uppercase; letter-spacing: 0.4px;
+     font-family: "Roboto Condensed", "Arial Narrow", Tahoma, sans-serif; font-weight: normal; font-size: 11.5pt;
+     border-bottom: 1px solid #C8CBCF; padding: 0 0 6px 0; margin: 26px 0 10px 0; }
+h2:before { content: counter(avrsec, decimal-leading-zero); display: inline-block; background: #171C21;
+            color: #FFFFFF; font-family: Roboto, Tahoma, sans-serif; font-weight: bold; font-size: 7.5pt;
+            letter-spacing: 0; width: 18px; height: 16px; line-height: 16px; text-align: center;
+            border-radius: 2px; margin-right: 8px; vertical-align: 1px; }
+h3 { color: #5C636B; text-transform: uppercase; letter-spacing: 0.4px;
+     font-family: "Roboto Condensed", "Arial Narrow", Tahoma, sans-serif; font-weight: normal; font-size: 10pt;
+     margin: 16px 0 6px 0; }
+h3:empty { display: none; }
+table { border-collapse: collapse; width: 100%; background: #FFFFFF; border: 1px solid #E2E4E6;
+        margin: 6px 0 14px 0; }
+table, th, td { border: 0; }
+th { background: #FFFFFF; color: #8F949C; text-align: left; text-transform: uppercase; letter-spacing: 0.4px;
+     font-family: "Roboto Condensed", "Arial Narrow", Tahoma, sans-serif; font-weight: normal; font-size: 8.5pt;
+     padding: 8px 10px; border-bottom: 1px solid #C8CBCF; }
+td { color: #33363D; padding: 7px 10px; border-bottom: 1px solid #E2E4E6; vertical-align: top; }
+tr:nth-child(odd) { background: #FFFFFF; }
+tr:nth-child(even) { background: #F4F5F6; }
+code { font-family: Consolas, monospace; font-size: 9pt; color: #171C21; background: #F4F5F6;
+       border: 1px solid #E2E4E6; border-radius: 2px; padding: 0 3px; }
+em { color: #5C636B; }
+strong { color: #171C21; }
+a, a:visited { color: #171C21; }
+hr { border: 0; border-top: 1px solid #C8CBCF; }
+"""
+
+
+def style(output):
+    """The output window in the AVR Design System's style. Cosmetic: a window that refuses it keeps pyRevit's."""
+    try:
+        output.add_style(AVR_CSS)
+    except Exception:
+        pass
+    try:
+        output.set_title(u'Tadpole')
+    except Exception:
+        pass
+
+
+def core_flips(output, offers, refused, chosen):
+    """THE CORE TO THE OPPOSITE SIDE (user, 2026-10-16): which straight sections were offered, which were taken, and
+    why the others were not offered."""
+    if not offers and not refused:
+        return
+    rows = []
+    for o in offers:
+        mix, after = o.get('mix') or {}, o.get('mix_after') or o.get('mix') or {}
+        rows.append([o['section'], u'{0} -> {1}'.format(o['side_from'], o['side_to']), o.get('how', u''),
+                     u', '.join(u'{0} {1}'.format(name, mix.get(k, 0)) if mix.get(k, 0) == after.get(k, 0) else
+                                u'{0} {1} -> {2}'.format(name, mix.get(k, 0), after.get(k, 0))
+                                for k, name in ((1, u'1k'), (2, u'2k'), (3, u'3k'))),
+                     u'-' if o.get('lost_before') is None else u'{0:.1f} -> {1:.1f}'.format(
+                         o['lost_before'], o['lost_after']),
+                     (u'moved' if o['section'] in chosen else u'offered, kept where it was') + (
+                         u' - possible, NOT RECOMMENDED: its long sides face {0} and {1}, the core goes to the sunny one'.format(
+                             *(o.get('faces') or (u'?', u'?'))) if o.get('warn') else u'')])
+    for section, why in refused:
+        rows.append([section, u'-', u'-', u'-', u'-', u'not offered: {0}'.format(why)])
+    rows.sort(key=lambda r: _section_sort(r[0]))
+    output.print_md(u'## Cores to the opposite side')
+    output.print_table(
+        table_data=rows,
+        columns=[u'section', u'side now -> then', u'how', u'flats over all unique floors (before -> after)',
+                 u'm2 beyond the bands and dead, before -> after', u'decision'])
+
+
+def _flats(counts):
+    if not counts:
+        return u'-'
+    return u' · '.join(u'{0} {1:g}'.format(name, counts.get(k, 0)) for k, name in ((1, u'1k'), (2, u'2k'), (3, u'3k')))
+
+
+def _shares(counts):
+    total = float(sum((counts or {}).get(k, 0) for k in (1, 2, 3)))
+    if not total:
+        return u'-'
+    return u' · '.join(u'{0} {1:.1f} %'.format(name, 100.0 * counts.get(k, 0) / total)
+                       for k, name in ((1, u'1k'), (2, u'2k'), (3, u'3k')))
+
+
+def rerun_summary(output, again, held_before, held_after, brief=None):
+    """SECTIONS LAID AGAIN from the window after the run (user, 2026-10-16: "звіт має доповнюватися даними про
+    перегенерацію"): which sections, why (the core across or back, the model's geometry now), their flats before and
+    after over all their floors, what was removed for them, and the file's mix after."""
+    import time
+    only = sorted(again.get('only') or (), key=_section_sort)
+    fresh = set(again.get('fresh') or ())
+    flips = set(again.get('flips') or ())
+    laid = set(again.get('laid') or ())
+    rows = []
+    for section in only:
+        what = []
+        if section in fresh:
+            what.append(u'the model as it is now')
+        if section in flips and section not in laid:
+            what.append(u'core to the opposite side')
+        elif section in laid and section not in flips:
+            what.append(u'core back to its side')
+        rows.append([section, u'; '.join(what) or u'-', _flats(held_before.get(section)),
+                     _flats(held_after.get(section))])
+    output.print_md(u'## Sections laid again')
+    output.print_table(table_data=rows, columns=[u'section', u'why', u'flats before, all floors',
+                                                 u'flats after, all floors'])
+    removed = again.get('removed')
+    if removed:
+        deleted, failed, kinds = removed
+        parts = u', '.join(u'{0} {1}'.format(n, k) for k, n in sorted(kinds.items()) if n)
+        output.print_md(u'Removed first: **{0}** element(s) the last run made for these sections{1}{2}.'.format(
+            deleted, u' ({0})'.format(parts) if parts else u'',
+            u'; **{0}** could not be removed'.format(failed) if failed else u''))
+    total_before, total_after = {1: 0, 2: 0, 3: 0}, {1: 0, 2: 0, 3: 0}
+    for held, total in ((held_before, total_before), (held_after, total_after)):
+        for counts in (held or {}).values():
+            for k in total:
+                total[k] += (counts or {}).get(k, 0)
+    line = u'The file: {0} -> **{1}**'.format(_shares(total_before), _shares(total_after))
+    if brief:
+        line += u' (the settings: {0})'.format(u' · '.join(
+            u'{0} {1:.0f} %'.format(name, 100.0 * brief.get(k, 0)) for k, name in ((1, u'1k'), (2, u'2k'), (3, u'3k'))))
+    output.print_md(line)
+    if again.get('started'):
+        output.print_md(u'_Laid again in {0:.0f} s._'.format(time.time() - again['started']))
+
+
 def _header(output, title):
     output.print_md('# ' + title)
     cats = ', '.join([str(c).replace('OST_', '') for c in TARGET_CATEGORIES])
@@ -624,7 +763,7 @@ def sun_placed(output, placed, failed):
 
 
 # ======================================================================
-# Button 5 — Tadpole (input collection)
+# Button 5 — Tadpole
 # ======================================================================
 
 def inputs_manifest(output, amounts=None):
@@ -1086,7 +1225,7 @@ def inputs_brief(output, result, shading=None, skipped_types=None):
     want to know whether the cutter got its inputs. The Collect and
     Place Roofs buttons still print the long form.
     """
-    _header(output, u'Tadpole — input collection')
+    _header(output, u'Tadpole')
 
     total = len(result.records)
     with_geo = len([r for r in result.records if r.has_geometry])
@@ -1132,6 +1271,15 @@ def _lengths(values):
     return u' + '.join([u'{0:.2f}'.format(v) for v in values]) or u'-'
 
 
+def _section_key(value):
+    """Numeric sections first and in numeric order, then text - `unique._section_key`, here so that the report reads
+    no module of the rules (the Tadpole-split button's build has none)."""
+    try:
+        return (0, float(value), u'')
+    except (TypeError, ValueError):
+        return (1, 0.0, u'{0}'.format(value))
+
+
 def unique_floors(output, result, by_building=None):
     """Per section: the three steps with every length, then the result.
 
@@ -1143,16 +1291,15 @@ def unique_floors(output, result, by_building=None):
     through them: one building at a time, and within it the lowest unique
     floor first, carried upward.
     """
-    from tadpole import unique
     output.print_md(u'# Unique floors')
     if not result:
         output.print_md(u'_No residential outer walls - nothing to group._')
         return
     summary = []
-    order = unique.sorted_sections(result)
+    order = sorted(result.keys(), key=_section_key)          # `unique.sorted_sections`
     if by_building:
         order = sorted(order, key=lambda s: (by_building.get(s, 9999),
-                                             unique._section_key(s)))
+                                             _section_key(s)))
     seen_building = None
     for section in order:
         if by_building:
@@ -1260,21 +1407,35 @@ def l_stairs(output, plans):
                         else u'') if i == n['face'] else u'')
                 for i, f in enumerate(n['faces']))
             hrs = info.get('face_hours') or []
+            # SAY WHICH RULE PICKED THE FACE (user, 2026-10-15, sections 52/54: "on the darker face" was printed for a
+            # face the forced core took for being the SHORTER one, 54's lighter one)
+            if n.get('gentle_pick'):
+                pick = u' - a gentle bend: the {0} half of the inner facade carries it'.format(n['gentle_pick'])
+            elif n.get('forced_short'):
+                pick = u' - put to the bend from the dark long face: the shorter carries it'
+            elif n.get('preferred'):
+                pick = u' - the darker carries it'
+            else:
+                pick = u' - alike, the shorter carries it'
             node = (u'{0:.1f} m2, its wall on the face, {1:.2f} m from the corner '
                     u'to the end of the wing{2}').format(
                 n['area_ft2'] * 0.09290304,
                 n['faces'][n['face']]['take_ft'] * 0.3048,
-                u'; sun hours of the faces {0}, {1}'.format(
+                (u'; sun hours of the faces {0}, {1}'.format(
                     u'-' if hrs[0] is None else u'%.2f' % hrs[0],
                     u'-' if hrs[1] is None else u'%.2f' % hrs[1])
-                + (u' - the darker carries it' if n.get('preferred')
-                   else u' - alike, the shorter carries it')
-                if len(hrs) == 2 else u'')
+                 if len(hrs) == 2 and None not in hrs else u'') + pick)
         elif variant == 1:
             short = u' / '.join(u'{0:.2f} m'.format(v) for v in info.get('short_m', []))
             node = u'5.5 x 6.47 m, flush against the dark long face'
+            if info.get('gentle'):
+                node = u'5.5 x 6.47 m, flush on the outer facade at its break'
         label = {1: u'1: a long face is dark', 2: u'2: at the bend'}.get(
             variant, u'{0}'.format(variant))
+        if info.get('gentle'):
+            g = info['gentle']
+            label = (u'gentle bend {0:.0f} deg: the {1} facade is the darker ({2:.1f} m inner / {3:.1f} m outer, '
+                     u'dark over the floors)').format(g['angle'], g['facade'], g['inner_m'], g['outer_m'])
         rows.append([section, info.get('level', u'-'), label, dark, short, node])
     output.print_md(u'## L-shaped sections: what the stair rules saw')
     output.print_table(

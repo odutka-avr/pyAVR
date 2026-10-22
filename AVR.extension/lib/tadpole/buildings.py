@@ -117,9 +117,12 @@ def by_section(buildings):
     def key(building):
         numbers = []
         for record in building:
+            # (IronPython's float(None) is a .NET NullReference, not a TypeError - Str200 V1, 2026-10-20)
+            if not record.section:
+                continue
             try:
                 numbers.append(float(record.section))
-            except (TypeError, ValueError):
+            except Exception:
                 pass
         return min(numbers) if numbers else 1e9
 

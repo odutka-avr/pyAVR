@@ -160,6 +160,9 @@ class Progress(object):
 
     @property
     def cancelled(self):
+        # the x on the "Work in Frogress" card stops the run as the bar's own cancel does (2026-10-20)
+        if splash.cancel_requested:
+            return True
         try:
             return bool(self._bar.cancelled)
         except Exception:
@@ -207,12 +210,12 @@ class Progress(object):
             return
         self._last_draw = now
         self._drawn += 1
-        # the splash card breathes on the same redraws - the run owns the UI
-        # thread, so this is the only moment anything gets drawn at all
-        splash.blink()
 
         overall = self._start.get(self._key, 0.0) \
             + self._span.get(self._key, 1.0) * fraction
+        # the splash card grows on the same redraws (spawn -> frog with the share done) - the run owns the UI
+        # thread, so this is the only moment anything gets drawn at all
+        splash.blink(overall)
         try:
             self._bar.title = self._title_for(note)
         except Exception:

@@ -227,12 +227,20 @@ def sides_of(runs):
         else:
             entry['runs'] = [(run, ends)]
             sides.append(entry)
+    from tadpole import arcs
     for side in sides:
         ts = []
         for _run, ends in side['runs']:
             for point in ends:
                 ts.append(point[0] * side['dir'][0] + point[1] * side['dir'][1])
         side['t0'], side['t1'] = min(ts), max(ts)
+        # A ROUNDED END carries the side on to where the rounding ends (`geom.side_arc_extension`): the walls end at
+        # the arc, the side's modules do not
+        side['wall_t0'], side['wall_t1'] = side['t0'], side['t1']
+        e0, e1, ends = arcs.side_arc_extension(side['dir'], side['off'], side['t0'], side['t1'])
+        side['arc_ends'] = ends
+        side['t0'] -= e0
+        side['t1'] += e1
         side['length_m'] = (side['t1'] - side['t0']) * 0.3048
     return sides
 
@@ -247,6 +255,21 @@ def main_sides(sides):
         if delta < ANG_TOL and abs(side['off'] - first['off']) > LINE_TOL_FT:
             return [first, side]
     return order[:2]
+
+
+def _carry_on(line, floor_sides, small_side):
+    """How far the floors' plates carry on past the start and the end of `small_side` along `line`, in ft summed
+    over the floors: each floor by its side on that line, or the parallel one nearest it (a stepped wall)."""
+    past0 = past1 = 0.0
+    for sides in floor_sides.values():
+        par = [s for s in sides
+               if min(abs(s['ang'] - line['ang']), math.pi - abs(s['ang'] - line['ang'])) < ANG_TOL]
+        if not par:
+            continue
+        side = min(par, key=lambda s: abs(s['off'] - line['off']))
+        past0 += max(0.0, small_side['t0'] - side['t0'])
+        past1 += max(0.0, side['t1'] - small_side['t1'])
+    return past0, past1
 
 
 def main_sides_along(sides, direction):
@@ -552,6 +575,108 @@ def _bend_levels(floors, shapes, ref_level):
     return order
 
 
+def _same_plate(a, b):
+    """Are two plates one outline - their areas within 1 %, their centres within a foot (as `_bend_levels` groups)?"""
+    from tadpole import lplate
+    if not a or not b:
+        return False
+    area_a, area_b = abs(lplate._signed_area(a)), abs(lplate._signed_area(b))
+    ca = (sum(p[0] for p in a) / float(len(a)), sum(p[1] for p in a) / float(len(a)))
+    cb = (sum(p[0] for p in b) / float(len(b)), sum(p[1] for p in b) / float(len(b)))
+    return abs(area_a - area_b) <= 0.01 * max(area_a, area_b) and abs(ca[0] - cb[0]) < 1.0 and abs(ca[1] - cb[1]) < 1.0
+
+
+def _edge_on(plate, line, min_ft=3.0):
+    """Has `plate` an edge on `line` (as long as a metre or so)?"""
+    for i in range(len(plate)):
+        p, q = plate[i], plate[(i + 1) % len(plate)]
+        if math.hypot(q[0] - p[0], q[1] - p[1]) < min_ft:
+            continue
+        direction, angle, off = _line_of(p, q)
+        if same_line(dict(ang=angle, off=off), line):
+            return True
+    return False
+
+
+def _buried_on_twins(candidates, floors, plates, section, have):
+    """The long sides missing from a few floors only because there they are buried - a floor with fewer outer walls
+    but THE OUTLINE OF THE OTHERS (user, 2026-10-21: "якщо є поверх в якого лишень одна стіна зовнішня, але по
+    контуру такий же як інші, то краще ставити по інших"). Such a side counts as present on every floor; a floor of
+    another outline still rules a side out, as does any side buried on most floors."""
+    if not plates:
+        return []
+    plate_of = dict((lv, plates.get((section, lv))) for lv in floors)
+    out = []
+    for c in candidates:
+        if any(c is h for h in have):
+            continue
+        missing = [lv for lv in floors if lv not in c['levels']]
+        if not missing or len(missing) * 2 >= len(floors):
+            continue
+        ok = True
+        for lv in missing:
+            plate = plate_of.get(lv)
+            if not plate or not _edge_on(plate, c) or \
+                    not any(_same_plate(plate, plate_of.get(o)) for o in c['levels']):
+                ok = False
+                break
+        if ok:
+            out.append(c)
+    return out
+
+
+def _elev(runs):
+    for run in runs:
+        z = getattr(run.record, 'level_elev', None)
+        if z is not None:
+            return z
+    return 0.0
+
+
+def _adjoins(line, sides, depth_mm, slack_m=0.5):
+    """Has a floor a wall parallel to `line` no further in from it than a core is deep (and `slack_m`) - so that a
+    core standing on `line` touches that floor's plate?"""
+    reach = (depth_mm / 1000.0 + slack_m) / 0.3048
+    for side in sides:
+        flip = min(abs(side['ang'] - line['ang']), math.pi - abs(side['ang'] - line['ang']))
+        if flip >= ANG_TOL:
+            continue
+        sign = -1.0 if abs(side['ang'] - line['ang']) > math.pi / 2.0 else 1.0
+        if abs(line['off'] - sign * side['off']) <= reach:
+            return True
+    return False
+
+
+def _dark_above(candidates, whole, floors, chosen, floor_sides=None, depth_mm=6470.0):
+    """(line, [levels cut back]) - the dark long side of the floors above when the LOWEST floors, fewer than half,
+    are cut back from it, or None (user, 2026-10-21, ORLK R24-2 section 66: "якщо внизу такий половинчастий поверх на
+    південь, де стали би інакше світлі квартири, то цю сходову і коридор треба вписувати поза плиту"). Section 66's
+    Поверх 02 has its north wall 6.55 m in from the dark north facade of the five floors above; the only long side on
+    every floor was the lit south one, and the core went there. Now the side dark on the floors above wins when it is
+    darker, sun per floor, than the side the rule took - and on the floors cut back the core stands outside the
+    plate."""
+    if chosen is None:
+        return None
+    elev = dict((lv, _elev(runs)) for lv, runs in floors.items())
+    mean = lambda c: c['sun'] / float(max(1, len(c['levels'])))
+    best = None
+    for c in candidates:
+        if any(c is w for w in whole):
+            continue
+        missing = [lv for lv in floors if lv not in c['levels']]
+        if not missing or len(missing) * 2 >= len(floors):
+            continue
+        if max(elev[lv] for lv in missing) >= min(elev[lv] for lv in c['levels']):
+            continue                    # not the lowest floors that are cut back
+        if floor_sides is not None and not all(_adjoins(c, floor_sides.get(lv) or [], depth_mm) for lv in missing):
+            continue                    # a floor cut back further than the core is deep: the core would not touch it
+        if same_line(c, chosen) or mean(c) >= mean(chosen) - 0.1:
+            continue
+        if best is None or mean(c) < mean(best[0]):
+            best = (c, missing)
+    return best
+
+
 def _inside_every_plate(polygon, plates):
     """Does the core lie inside every one of `plates` (to BEND_FIT_M2)? A stair is a stack: it exists on every storey."""
     from tadpole import lplate, lpoly
@@ -567,6 +692,147 @@ def _inside_every_plate(polygon, plates):
         if (whole - inside) * 0.09290304 > BEND_FIT_M2:
             return False
     return True
+
+
+GENTLE_MARK = u'read as one section with a break'
+
+
+def _face_dark_m(floors, floor_sides, a, b):
+    """Metres of wall under the sun requirement on the line of the face a-b, summed over the floors."""
+    direction, angle, off = _line_of(a, b)
+    probe = dict(dir=direction, ang=angle, off=off)
+    return sum(dark_length_m(side) for level in floors for side in floor_sides[level] if same_line(side, probe))
+
+
+def _gentle_variant(floors, floor_sides, shapes, ref_level, shape, width, depth, info=None, shorter=False):
+    """(line, at_t, rule, polygon) of the core of an L-shaped section of a GENTLE BEND, or None when no place of
+    these rules holds it.
+
+    A GENTLE BEND IS ONE SECTION WITH A BREAK (user, 2026-10-15, ORLK V1.2 sections 52 and 54, 165 degrees: "чому у всіх
+    таких пологих у файлі сходова стала на меншу з двох сторін кута? ... це секція з тупим кутом, і там правила мали б
+    бути чуть інакші"; the rules agreed: "давай спробуємо ці правила, але не виключатимемо що сходова за потреби і на
+    коротшу сторону може встати"). The two faces at the inner corner are the two halves of ONE long facade, the inner
+    one, and the two faces opposite them the halves of the outer one; the two ends are the gables.
+      - the core goes on the darker of the two long facades - the metres of wall under the sun requirement of both its
+        halves, over every floor; of equals, the inner one;
+      - on that facade it stands at the break: along the longer half, its end on the corner of the break - the inner
+        corner (the hall in front of its door wall, as before) or the outer one (flush on the outer facade; the slides
+        then move it along that half where the flats come out better);
+      - the shorter half where the longer one does not hold the core inside every plate, or where `shorter` is asked
+        (`apartments.choose_bend` lays it there too and keeps it only where all the unique floors lose less)."""
+    from tadpole import lplate
+    from tadpole.config import CORRIDOR_WIDTH_MM, APARTMENT_MODULE_BIAS
+    inner_m = [_face_dark_m(floors, floor_sides, *f) for f in shape['faces']]
+    outer_m = [_face_dark_m(floors, floor_sides, *f) for f in shape['opposite']]
+    d_in, d_out = sum(inner_m), sum(outer_m)
+    on_outer = d_out > d_in + 0.05
+    angle = lplate.bend_angle(shape)
+    all_plates = [shapes[lv][0] for lv in floors]
+    head = (u'L-shaped plate: a GENTLE bend of {1:.0f} degrees, {0} - the {2} facade is the darker ({3:.1f} m of wall '
+            u'under the sun requirement over the floors, the {4} one {5:.1f} m)').format(
+                GENTLE_MARK, angle, u'outer' if on_outer else u'inner', d_out if on_outer else d_in,
+                u'inner' if on_outer else u'outer', d_in if on_outer else d_out)
+    if info is not None:
+        info.update(gentle=dict(inner_m=d_in, outer_m=d_out, facade=u'outer' if on_outer else u'inner',
+                                angle=angle), dark_m=list(outer_m),
+                    long_m=[lplate._len(lplate._sub(*f)) * 0.3048 for f in shape['opposite']])
+    if not on_outer:
+        lengths = [lplate._len(lplate._sub(*f)) for f in shape['faces']]
+        longer = 0 if lengths[0] >= lengths[1] else 1
+        first = [1 - longer, longer] if shorter else [longer, 1 - longer]
+        orders = [first, first[::-1]]       # the other half where the first holds the core inside no plate of all
+        for order in orders:
+            for level in _bend_levels(floors, shapes, ref_level):
+                node = {}
+                polygon, note = lplate.bend_stair(
+                    shapes[level][0], CORRIDOR_WIDTH_MM / FT_TO_MM, STAIR_MODULE_MM / FT_TO_MM,
+                    width / FT_TO_MM, depth / FT_TO_MM, STAIR_BEND_EXIT_MM / FT_TO_MM,
+                    room_ft=STAIR_BEND_ROOM_MM / FT_TO_MM, bias=APARTMENT_MODULE_BIAS, info=node,
+                    prefer=order, at_corner=True)
+                if polygon is None or not _inside_every_plate(polygon, all_plates):
+                    continue
+                which = u'longer' if node.get('face') == longer else u'shorter'
+                if node.get('face') != order[0] and order is first:
+                    continue                # bend_stair fell back to the other half on this plate: the second pass
+                node['preferred'] = False
+                node['gentle_pick'] = which
+                note = note.replace(u'on the darker face', u'on the {0} half'.format(which)) \
+                           .replace(u'on the shorter face', u'on the {0} half'.format(which))
+                if info is not None:
+                    info.update(variant=2, node=node, level=level, face_hours=[None, None],
+                                short_m=[f * 0.3048 for f in lengths])
+                line = dict(dir=(1.0, 0.0), ang=0.0, off=0.0, t0=0.0, t1=0.0, length_m=0.0)
+                why = u'' if which == u'longer' else (
+                    u' (the shorter half: asked for)' if shorter else u' (the shorter half: the longer one does not '
+                                                                      u'hold the core inside every plate)')
+                rule = (u'{0} - the core stands at the break of the inner facade, {1:.2f} x {2:.2f} m, along its {3} '
+                        u'half with its end on the corner{4}; {5}').format(
+                            head, depth / 1000.0, width / 1000.0, which, why, note)
+                return line, 0.0, rule, polygon
+        return None
+    # the outer facade: flush on it, the core's end on the corner of its break
+    o0, o1 = shape['opposite']
+    kink = None
+    for p in o0:
+        for q in o1:
+            if lplate._len(lplate._sub(p, q)) < 0.05:
+                kink = p
+    lengths = [lplate._len(lplate._sub(*f)) for f in shape['opposite']]
+    longer = 0 if lengths[0] >= lengths[1] else 1
+    order = [1 - longer, longer] if shorter else [longer, 1 - longer]
+    ref_plate = shapes[ref_level][0]
+    cx = sum(p[0] for p in ref_plate) / float(len(ref_plate))
+    cy = sum(p[1] for p in ref_plate) / float(len(ref_plate))
+    for k in order:
+        a, b = shape['opposite'][k]
+        direction, ang, off = _line_of(a, b)
+        ta, tb = (a[0] * direction[0] + a[1] * direction[1], b[0] * direction[0] + b[1] * direction[1])
+        t0, t1 = min(ta, tb), max(ta, tb)
+        half = width / 2.0 / FT_TO_MM
+        left_mm = None
+        if kink is not None:
+            tk = kink[0] * direction[0] + kink[1] * direction[1]
+            low = abs(tk - t0) <= abs(tk - t1)
+            at_t = tk + half if low else tk - half
+            # LESS THAN A MODULE LEFT BETWEEN THE CORE AND THE GABLE: the core goes to the gable instead (user,
+            # 2026-10-16, ORLK V1.2 section 54, dead space 4506776: 2.8 m of dark wall between the core and the gable,
+            # under a module, no flat - "давай спробуємо А"); the strip is then at the break, beside the flats there
+            far = t1 if low else t0
+            left = abs(far - tk) * FT_TO_MM - width
+            if 1.0 < left < STAIR_MODULE_MM:
+                at_t = far - half if low else far + half
+                left_mm = left
+        else:
+            at_t = (t0 + t1) / 2.0
+        if t1 - t0 < 2.0 * half - 1e-6:
+            continue
+        # the core's outline, to see that every plate holds it
+        n = (-direction[1], direction[0])
+        if (cx - a[0]) * n[0] + (cy - a[1]) * n[1] < 0:
+            n = (-n[0], -n[1])
+        base = (a[0] + direction[0] * (at_t - ta), a[1] + direction[1] * (at_t - ta))
+        p0 = (base[0] - direction[0] * half, base[1] - direction[1] * half)
+        p1 = (base[0] + direction[0] * half, base[1] + direction[1] * half)
+        dd = depth / FT_TO_MM
+        rect = [p0, p1, (p1[0] + n[0] * dd, p1[1] + n[1] * dd), (p0[0] + n[0] * dd, p0[1] + n[1] * dd)]
+        if not _inside_every_plate(rect, all_plates):
+            continue
+        which = u'longer' if k == longer else u'shorter'
+        if info is not None:
+            info.update(variant=1, dark_face=d_out)
+        line = dict(dir=direction, ang=ang, off=off, t0=t0, t1=t1, length_m=(t1 - t0) * 0.3048)
+        why = u'' if which == u'longer' else (
+            u' (the shorter half: asked for)' if shorter else u' (the shorter half: the longer one does not hold the '
+                                                              u'core inside every plate)')
+        if left_mm is None:
+            rule = (u'{0} - the core stands on the outer facade at its break, along its {1} half ({2:.2f} m) with its '
+                    u'end on the corner{3}').format(head, which, lengths[k] * 0.3048, why)
+        else:
+            rule = (u'{0} - the core stands on the outer facade, along its {1} half ({2:.2f} m){3}, pushed to the '
+                    u'gable: at the break it would leave {4:.0f} mm between it and the gable, under a module').format(
+                        head, which, lengths[k] * 0.3048, why, left_mm)
+        return line, at_t, rule, None
+    return None
 
 
 def l_variant(floors, floor_sides, plates, section, width, depth,
@@ -606,6 +872,13 @@ def l_variant(floors, floor_sides, plates, section, width, depth,
         info.update(variant=None, level=ref_level, dark_m=[], long_m=[],
                     short_m=[lplate._len(lplate._sub(*f)) * 0.3048
                              for f in shape['faces']])
+    if lplate.is_obtuse(shape):
+        # A GENTLE BEND IS ONE SECTION WITH A BREAK (user, 2026-10-15): its own rules; the old ones where these hold
+        # no core. `force_bend` asks there for the shorter half of the facade
+        got = _gentle_variant(floors, floor_sides, shapes, ref_level, shape, width, depth, info=info,
+                              shorter=bool(force_bend))
+        if got is not None:
+            return got
     best = None
     tie = False
     for a, b in shape['opposite']:
@@ -682,6 +955,11 @@ def l_variant(floors, floor_sides, plates, section, width, depth,
                 room_ft=STAIR_BEND_ROOM_MM / FT_TO_MM,
                 bias=APARTMENT_MODULE_BIAS, info=node, prefer=prefer,
                 at_corner=lplate.is_obtuse(shape))
+            if forced and polygon is not None:
+                # the order came from the lengths, not the sun: say so (sections 52/54, 2026-10-15)
+                node['preferred'] = False
+                node['forced_short'] = True
+                note = note.replace(u'on the darker face', u'on the shorter face')
             return polygon, note, node, hours, shape
 
         # THE BEND OF THE FLOORS THAT MOST FLOORS HAVE (user, 2026-10-12, section 55: the core stood at the bend of
@@ -695,11 +973,24 @@ def l_variant(floors, floor_sides, plates, section, width, depth,
             # asked to the bend, with the dark face to go back to: only the bend of the plate most floors have - the
             # bend of another plate stands in the middle of the body on those floors (section 10, below)
             tried = tried[:1]
-        for level in tried:
+        outside = []
+        for k, level in enumerate(tried):
             try_node = node_on(level)
             if try_node[0] is not None and _inside_every_plate(try_node[0], all_plates):
                 got = (level,) + try_node
                 break
+            if k == 0 and try_node[0] is not None and flush_best is None:
+                # THE BEND MOST FLOORS HAVE, EVEN WHERE A FEW FLOORS OF ANOTHER OUTLINE DO NOT HOLD IT (user,
+                # 2026-10-21, ORLK R24-2 section 72: "мало би з меншої темної сторони поставитись" - the bend of Поверх
+                # 02_К10, an L with a 10 x 10 m cut, stood in the middle of the four floors above, which have only a
+                # 3.6 x 3.3 m notch): kept when the floors it leaves are fewer than half and none of them has the
+                # outline of the floors it was read on
+                out = [lv for lv in floors if not _inside_every_plate(try_node[0], [shapes[lv][0]])]
+                twin = [lv for lv in out if _same_plate(shapes[lv][0], shapes[level][0])]
+                if out and not twin and len(out) * 2 < len(floors):
+                    got = (level,) + try_node
+                    outside = out
+                    break
         if got is None and flush_best is not None:
             # A CORE ASKED TO THE BEND THAT NO BEND HOLDS ON EVERY FLOOR STAYS ON THE DARK FACE (user, 2026-10-14, ORLK
             # V1.4 section 10, "чому в секції 10 сходова стоїть неправильно?"): the bend of the smallest plate, Д_02's,
@@ -734,10 +1025,18 @@ def l_variant(floors, floor_sides, plates, section, width, depth,
             rule = (u'L-shaped plate: {3} - the core stands '
                     u'at the bend, {0:.2f} x {1:.2f} m, {2}').format(
                         depth / 1000.0, width / 1000.0, note, why)
+            if outside:
+                rule += (u'; read on the plate most floors have - the core leaves the plate of {0}, a floor of '
+                         u'another outline').format(u', '.join(sorted(outside)))
             return line, 0.0, rule, polygon
     dark, line, a, b = best
     if info is not None:
         info.update(variant=1, dark_face=dark)
+    major = _face_on_major(floors, floor_sides, shapes, ref_level, line, width, depth)
+    if major is not None:
+        line, a, b, major_level, out = major
+        if info is not None:
+            info['level'] = major_level
     mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
     at_t = mid[0] * line['dir'][0] + mid[1] * line['dir'][1]
     ts = [p[0] * line['dir'][0] + p[1] * line['dir'][1] for p in (a, b)]
@@ -746,7 +1045,61 @@ def l_variant(floors, floor_sides, plates, section, width, depth,
     rule = (u'L-shaped plate: the long face opposite the corner is dark '
             u'({0:.1f} m of wall under the sun requirement) - the core stands '
             u'flush against it, in the middle of the face{1}').format(dark, bend_note)
+    if major is not None:
+        rule += (u'; the face of the plate most floors have - {0} cut back from it, the core stands outside its plate '
+                 u'there').format(u', '.join(sorted(out)))
     return line, at_t, rule, None
+
+
+def _face_on_major(floors, floor_sides, shapes, ref_level, line, width, depth):
+    """(line, a, b, level, [levels cut back]) - the dark face of the plate MOST floors have, parallel to `line` (read
+    off the smallest plate) and further out, when the floors cut back from it are fewer than half and touch a core
+    flush on it; or None.
+
+    THE CORE TO THE EDGE OF THE FLOORS MOST OF THE SECTION HAS (user, 2026-10-21, ORLK R24-2 section 69: "правильніше
+    аби вони були до краю дотягнуті, і на вищому поверсі, просто чуть досередини змісилися"). The face was read off the
+    smallest plate, Поверх 09's, whose dark north wall stands 2 m in from the north wall of the five floors below: the
+    core stood flush on 09 and 2 m short of the facade on every other floor. Now it stands flush on the face of the
+    floors most of the section has; on the floors cut back from it (the way `_dark_above` lets the lowest floors of a
+    straight section be) it stands outside the plate."""
+    order = _bend_levels(floors, shapes, ref_level)
+    level = order[0]
+    plate = shapes[level][0]
+    if level == ref_level or _same_plate(plate, shapes[ref_level][0]):
+        return None
+    cx = sum(p[0] for p in plate) / float(len(plate))
+    cy = sum(p[1] for p in plate) / float(len(plate))
+    for a, b in shapes[level][1]['opposite']:
+        direction, angle, off = _line_of(a, b)
+        probe = dict(dir=direction, ang=angle, off=off)
+        flip = min(abs(angle - line['ang']), math.pi - abs(angle - line['ang']))
+        if flip >= ANG_TOL or same_line(probe, line):
+            continue
+        n = (-direction[1], direction[0])
+        if (cx - a[0]) * n[0] + (cy - a[1]) * n[1] < 0:
+            n = (-n[0], -n[1])
+        # further out than the face it was read on: the old face's midpoint lies inside, beyond this one
+        if (line['off'] * (-line['dir'][1]) - a[0]) * n[0] + (line['off'] * line['dir'][0] - a[1]) * n[1] <= 0.3:
+            continue
+        if sum(dark_length_m(s) for lv in floors for s in floor_sides[lv] if same_line(s, probe)) <= 0.0:
+            continue
+        half = width / 2.0 / FT_TO_MM
+        dd = depth / FT_TO_MM
+        m = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        p0 = (m[0] - direction[0] * half, m[1] - direction[1] * half)
+        p1 = (m[0] + direction[0] * half, m[1] + direction[1] * half)
+        rect = [p0, p1, (p1[0] + n[0] * dd, p1[1] + n[1] * dd), (p0[0] + n[0] * dd, p0[1] + n[1] * dd)]
+        if not _inside_every_plate(rect, [plate]):
+            continue
+        out = [lv for lv in floors if not _inside_every_plate(rect, [shapes[lv][0]])]
+        if not out or len(out) * 2 >= len(floors):
+            continue
+        if any(_same_plate(shapes[lv][0], plate) for lv in out):
+            continue
+        if not all(_adjoins(probe, floor_sides.get(lv) or [], depth) for lv in out):
+            continue                    # cut back further than the core is deep: it would not touch that floor
+        return probe, a, b, level, out
+    return None
 
 
 def plan(outer_walls, inner_walls, sections=None, heights=None, plates=None,
@@ -855,9 +1208,17 @@ def plan(outer_walls, inner_walls, sections=None, heights=None, plates=None,
                                                t0=side['t0'], t1=side['t1'], sun=side['sun_sum'],
                                                levels={level: side['length_m']}))
             whole = [c for c in candidates if len(c['levels']) == len(floors)]
+            whole += _buried_on_twins(candidates, floors, plates, section, whole)
             whole += _stepped_walls(candidates, len(floors))
             whole = whole or candidates
             line = min(whole, key=lambda c: c['sun'])
+            above = _dark_above(candidates, whole, floors, line, floor_sides, depth)
+            if above is not None:
+                line, cut_back = above
+                rule_tail = (u'; the dark side of the floors above - {0} cut back from it, the core and the corridor '
+                             u'stand outside its plate there').format(u', '.join(sorted(cut_back)))
+            else:
+                rule_tail = u''
             line['length_m'] = (line['t1'] - line['t0']) * 0.3048
             # the smallest plate ON THIS LINE - a stepped wall's other floors
             # stand on a parallel line further out
@@ -887,7 +1248,17 @@ def plan(outer_walls, inner_walls, sections=None, heights=None, plates=None,
             short_small = (big - small > SAME_TOL_M
                            and small < STAIR_SMALL_EDGE_M)
             if difference > STAIR_DIFF_EDGE or short_small:
-                if abs(line['t0'] - small_side['t0']) > abs(line['t1'] - small_side['t1']):
+                # THE END THE FLOORS CARRY ON PAST, counted floor by floor - not off the union of every floor's
+                # facade line (user, 2026-10-20, ORLK R24-2 section 22: "сходова тут мала б стати з іншого краю
+                # коротшої плити"). One strip of a floor 02 running 18 m past the north gable outweighed the four
+                # floors 03-06 carrying on 12 m past the south end: the core stood against the gable, the corridor
+                # had one wing.
+                past0, past1 = _carry_on(line, floor_sides, small_side)
+                if abs(past0 - past1) > 0.1:
+                    start = past0 > past1
+                else:
+                    start = abs(line['t0'] - small_side['t0']) > abs(line['t1'] - small_side['t1'])
+                if start:
                     at_t, where = small_side['t0'] + half, u'start'
                 else:
                     at_t, where = small_side['t1'] - half, u'end'
@@ -917,6 +1288,7 @@ def plan(outer_walls, inner_walls, sections=None, heights=None, plates=None,
             if line.get('stepped'):
                 rule += (u'; the darker wall steps in on some floors - the core '
                          u'stands on its innermost line, inside every plate')
+            rule += rule_tail
 
         l_info = {}
         l_pick = l_variant(floors, floor_sides, plates, section, width, depth,
@@ -1063,12 +1435,8 @@ def place(doc, plans, roof_type, variant=None, method=None, progress=None):
                 continue
             with tx.Attempt(doc) as attempt:
                 z = level.Elevation
-                array = CurveArray()
-                count = len(item.points)
-                for i in range(count):
-                    a = item.points[i]
-                    b = item.points[(i + 1) % count]
-                    array.Append(Line.CreateBound(XYZ(a[0], a[1], z), XYZ(b[0], b[1], z)))
+                from tadpole import geom
+                array = geom.footprint_array(item.points, z)
                 roof, mapper = roofs.call_variant(variant or 'direct4_instance', doc, array,
                                                   level, roof_type, method=method)
                 roofs._flatten(roof, mapper)

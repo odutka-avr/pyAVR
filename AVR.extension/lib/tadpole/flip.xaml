@@ -1,0 +1,330 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tadpole — після прогону" Width="720" SizeToContent="Height" MaxHeight="900"
+        MinWidth="600"
+        ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
+        Background="#E9EAEC" Foreground="#171C21"
+        FontFamily="Roboto, Tahoma" FontSize="13">
+
+  <!-- AFTER THE RUN, OPEN (user, 2026-10-16): 01 the sections whose core may go to the opposite side; 02 any section
+       laid again on the model's geometry as it is now (a plate changed after the run). The AVR Design System, as
+       settings.xaml. -->
+  <Window.Resources>
+    <SolidColorBrush x:Key="Ink" Color="#171C21"/>
+    <SolidColorBrush x:Key="InkHover" Color="#242930"/>
+    <SolidColorBrush x:Key="Graphite" Color="#33353D"/>
+    <SolidColorBrush x:Key="Muted" Color="#5C636B"/>
+    <SolidColorBrush x:Key="Faint" Color="#8F949C"/>
+    <SolidColorBrush x:Key="Line" Color="#E2E4E6"/>
+    <SolidColorBrush x:Key="LineStrong" Color="#C8CBCF"/>
+    <SolidColorBrush x:Key="Surface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Surface2" Color="#F4F5F6"/>
+    <FontFamily x:Key="Cond">Roboto Condensed, Arial Narrow, Tahoma</FontFamily>
+    <FontFamily x:Key="Display">Montserrat, Helvetica Neue, Arial</FontFamily>
+
+    <Style x:Key="Chip" TargetType="Border">
+      <Setter Property="Width" Value="16"/>
+      <Setter Property="Height" Value="16"/>
+      <Setter Property="CornerRadius" Value="2"/>
+      <Setter Property="Background" Value="{StaticResource Ink}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="ChipText" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="GroupTitle" TargetType="TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource Cond}"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="8,0,0,0"/>
+    </Style>
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="{StaticResource Surface}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="2"/>
+      <Setter Property="Padding" Value="16"/>
+    </Style>
+
+    <!-- the template's checkbox: a 16 px square, black with a white tick when on -->
+    <Style x:Key="Check" TargetType="CheckBox">
+      <Setter Property="Focusable" Value="True"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="{StaticResource Cond}"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Foreground" Value="{StaticResource Graphite}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <StackPanel Orientation="Horizontal" Background="Transparent">
+              <Border x:Name="box" Width="16" Height="16" CornerRadius="2" BorderThickness="1"
+                      BorderBrush="{StaticResource LineStrong}" Background="{StaticResource Surface}"
+                      VerticalAlignment="Center">
+                <Path x:Name="tick" Data="M 3.5,8 L 6.5,11 L 12.5,4.5" Stroke="White" StrokeThickness="2"
+                      Visibility="Collapsed"/>
+              </Border>
+              <ContentPresenter Margin="10,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Ink}"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="box" Property="Background" Value="{StaticResource Ink}"/>
+                <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Ink}"/>
+                <Setter TargetName="tick" Property="Visibility" Value="Visible"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="Ghost" TargetType="Button">
+      <Setter Property="FontFamily" Value="{StaticResource Cond}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+      <Setter Property="Background" Value="{StaticResource Surface}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource LineStrong}"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Padding" Value="14,0,14,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bg" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                    CornerRadius="2" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bg" Property="Background" Value="{StaticResource Surface2}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Ghost}">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Background" Value="{StaticResource Ink}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource Ink}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bg" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                    CornerRadius="2" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bg" Property="Background" Value="{StaticResource InkHover}"/>
+                <Setter TargetName="bg" Property="BorderBrush" Value="{StaticResource InkHover}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- a folded card: the header a whole-width button with a chevron, the body shown when it is open -->
+    <Style x:Key="Fold" TargetType="Expander">
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Expander">
+            <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                    CornerRadius="2">
+              <DockPanel>
+                <ToggleButton DockPanel.Dock="Top" Content="{TemplateBinding Header}" Cursor="Hand" Focusable="False"
+                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                  <ToggleButton.Template>
+                    <ControlTemplate TargetType="ToggleButton">
+                      <Border x:Name="head" Background="Transparent" Padding="16,14,16,14">
+                        <DockPanel>
+                          <TextBlock x:Name="chev" DockPanel.Dock="Right" Text="▾" FontFamily="Segoe UI Symbol"
+                                     FontSize="14" Foreground="{StaticResource Graphite}" VerticalAlignment="Center"/>
+                          <ContentPresenter VerticalAlignment="Center"/>
+                        </DockPanel>
+                      </Border>
+                      <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                          <Setter TargetName="chev" Property="Text" Value="▴"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                          <Setter TargetName="head" Property="Background" Value="{StaticResource Surface2}"/>
+                        </Trigger>
+                      </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                  </ToggleButton.Template>
+                </ToggleButton>
+                <ContentPresenter x:Name="body" Margin="16,0,16,16" Visibility="Collapsed"/>
+              </DockPanel>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsExpanded" Value="True">
+                <Setter TargetName="body" Property="Visibility" Value="Visible"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="{StaticResource Ink}" Padding="16,9,16,9">
+      <DockPanel>
+        <TextBlock Text="Tadpole" FontFamily="{StaticResource Display}" FontWeight="SemiBold"
+                   FontSize="15" Foreground="White" VerticalAlignment="Center"/>
+        <TextBlock Text="ПІСЛЯ ПРОГОНУ" FontFamily="{StaticResource Cond}" FontSize="13"
+                   Foreground="White" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+      </DockPanel>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom" Background="{StaticResource Surface}"
+            BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="16,10,16,10">
+      <DockPanel>
+        <TextBlock x:Name="tb_status" DockPanel.Dock="Left" FontSize="11" Foreground="{StaticResource Faint}"
+                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="380"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="btn_keep" Content="ЗАЛИШИТИ ЯК Є" Style="{StaticResource Ghost}"
+                  MinWidth="130" Margin="0,0,8,0" Click="keep_click"/>
+          <Button x:Name="btn_flip" Content="ПЕРЕСТАВИТИ ВИБРАНІ" Style="{StaticResource Primary}"
+                  MinWidth="170" Click="flip_click"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,16,16,16">
+      <StackPanel>
+        <!-- 00 THE RUN IN NUMBERS (user, 2026-10-19: "найперше дамо короткий звіт, скільки вийшло квартир і яке було
+             завдання, і скільки поза діапазоном і в яких секціях найбільше"; the third tile as the share IN the bands,
+             with a bar - "поза діапазоном ... виглядає гнітюче") -->
+        <Border x:Name="card_summary" Style="{StaticResource Card}" Margin="0,0,0,12">
+          <StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+              <Border Style="{StaticResource Chip}">
+                <TextBlock Text="00" Style="{StaticResource ChipText}"/>
+              </Border>
+              <TextBlock Text="ПІДСУМОК ПРОГОНУ" Style="{StaticResource GroupTitle}"/>
+            </StackPanel>
+            <UniformGrid Columns="3">
+              <Border Background="{StaticResource Surface2}" CornerRadius="2" Padding="12,10,12,10" Margin="0,0,8,0">
+                <StackPanel>
+                  <TextBlock Text="КВАРТИР" FontFamily="{StaticResource Cond}" FontSize="11" Foreground="{StaticResource Faint}"/>
+                  <TextBlock x:Name="sum_flats" FontFamily="{StaticResource Cond}" FontSize="24" FontWeight="Bold"
+                             Foreground="{StaticResource Ink}"/>
+                  <TextBlock x:Name="sum_flats_note" FontFamily="{StaticResource Cond}" FontSize="12"
+                             Foreground="{StaticResource Graphite}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Surface2}" CornerRadius="2" Padding="12,10,12,10" Margin="4,0,4,0">
+                <StackPanel>
+                  <TextBlock Text="КВАРТИРОГРАФІЯ" FontFamily="{StaticResource Cond}" FontSize="11" Foreground="{StaticResource Faint}"/>
+                  <TextBlock x:Name="sum_mix" FontFamily="{StaticResource Cond}" FontSize="24" FontWeight="Bold"
+                             Foreground="{StaticResource Ink}"/>
+                  <TextBlock x:Name="sum_mix_note" FontFamily="{StaticResource Cond}" FontSize="12"
+                             Foreground="{StaticResource Graphite}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Surface2}" CornerRadius="2" Padding="12,10,12,10" Margin="8,0,0,0">
+                <StackPanel>
+                  <TextBlock Text="У ДІАПАЗОНІ ПЛОЩ" FontFamily="{StaticResource Cond}" FontSize="11" Foreground="{StaticResource Faint}"/>
+                  <TextBlock x:Name="sum_band" FontFamily="{StaticResource Cond}" FontSize="24" FontWeight="Bold"
+                             Foreground="{StaticResource Ink}"/>
+                  <Grid x:Name="sum_bar" Height="6" Margin="0,4,0,6">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition x:Name="sum_bar_in" Width="1*"/>
+                      <ColumnDefinition x:Name="sum_bar_out" Width="0*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Background="{StaticResource Ink}" CornerRadius="2,0,0,2"/>
+                    <Border Grid.Column="1" Background="{StaticResource LineStrong}" CornerRadius="0,2,2,0"/>
+                  </Grid>
+                  <TextBlock x:Name="sum_band_note" FontFamily="{StaticResource Cond}" FontSize="12"
+                             Foreground="{StaticResource Graphite}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+            </UniformGrid>
+            <TextBlock x:Name="sum_worst" FontFamily="{StaticResource Cond}" FontSize="13" Foreground="{StaticResource Graphite}"
+                       TextWrapping="Wrap" Margin="0,12,0,0"/>
+            <!-- the flats beyond their bands, selected and isolated in a 3D view (user, 2026-10-19) -->
+            <Button x:Name="btn_show3d" Content="ПОКАЗАТИ В 3D" Style="{StaticResource Ghost}" MinWidth="150"
+                    HorizontalAlignment="Left" Margin="0,12,0,0" Click="show3d_click"
+                    ToolTip="Виділити на посадці (3D-вид) квартири поза діапазоном площ; ще раз — зняти виділення"/>
+          </StackPanel>
+        </Border>
+
+        <!-- 01 THE SECTIONS ON A PLAN, right under the summary (user, 2026-10-19: "інтерфейс зі схемою секцій, де
+             показано все що буде змінюватися - його треба дати вище"): outline and number of each section; a click
+             goes round laid again / the core across / nothing; a section under the mouse shows its numbers -->
+        <Border x:Name="card_plan" Style="{StaticResource Card}" Margin="0,0,0,12">
+          <StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+              <Border Style="{StaticResource Chip}">
+                <TextBlock Text="01" Style="{StaticResource ChipText}"/>
+              </Border>
+              <TextBlock Text="СХЕМА СЕКЦІЙ" Style="{StaticResource GroupTitle}"/>
+            </StackPanel>
+            <WrapPanel x:Name="plan_legend" Orientation="Horizontal" Margin="0,0,0,12">
+              <Border Width="18" Height="18" CornerRadius="2" Background="{StaticResource Ink}" VerticalAlignment="Center"><TextBlock Text="↻" FontFamily="Segoe UI Symbol" FontSize="12" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+              <TextBlock Text="1 клік — перегенерувати секцію" FontFamily="{StaticResource Cond}" FontSize="13" Foreground="{StaticResource Graphite}" VerticalAlignment="Center" Margin="6,0,18,0"/>
+              <Border Width="18" Height="18" CornerRadius="2" Background="{StaticResource Ink}" VerticalAlignment="Center"><TextBlock Text="⇄" FontFamily="Segoe UI Symbol" FontSize="12" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+              <TextBlock Text="2 кліки — сходова на інший бік" FontFamily="{StaticResource Cond}" FontSize="13" Foreground="{StaticResource Graphite}" VerticalAlignment="Center" Margin="6,0,18,0"/>
+              <TextBlock Text="3 кліки — без змін" FontFamily="{StaticResource Cond}" FontSize="13" Foreground="{StaticResource Graphite}" VerticalAlignment="Center"/>
+            </WrapPanel>
+            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center" MaxHeight="360">
+              <Canvas x:Name="plan_canvas"/>
+            </Viewbox>
+          </StackPanel>
+        </Border>
+
+        <!-- 02 and 03 BELOW, FOLDED (user, 2026-10-19: "оці два - нижче, і в згорнутих по дефолту вкладках, ніби ти
+             отримуєш там розширений коментар") -->
+        <Expander x:Name="card_flip" Style="{StaticResource Fold}" IsExpanded="False" Margin="0,0,0,12">
+          <Expander.Header>
+            <StackPanel Orientation="Horizontal">
+              <Border Style="{StaticResource Chip}">
+                <TextBlock Text="02" Style="{StaticResource ChipText}"/>
+              </Border>
+              <TextBlock Text="СХОДОВА НА ПРОТИЛЕЖНИЙ БІК" Style="{StaticResource GroupTitle}"/>
+              <Border Width="18" Height="18" CornerRadius="2" Background="{StaticResource Ink}" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock Text="⇄" FontFamily="Segoe UI Symbol" FontSize="12" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+              <TextBlock x:Name="flip_count" FontFamily="{StaticResource Cond}" FontSize="12" Foreground="{StaticResource Faint}"
+                         VerticalAlignment="Center" Margin="12,0,0,0"/>
+            </StackPanel>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock TextWrapping="Wrap" FontFamily="{StaticResource Cond}" FontSize="13"
+                       Foreground="{StaticResource Graphite}" Margin="0,0,0,12"
+                       Text="Сходова дзеркально переходить на другу довгу сторону, модулі ті самі. Зміни квартирографії — у рядку: до → після."/>
+            <StackPanel x:Name="rows_panel"/>
+          </StackPanel>
+        </Expander>
+        <Expander x:Name="card_regen" Style="{StaticResource Fold}" IsExpanded="False">
+          <Expander.Header>
+            <StackPanel Orientation="Horizontal">
+              <Border Style="{StaticResource Chip}">
+                <TextBlock Text="03" Style="{StaticResource ChipText}"/>
+              </Border>
+              <TextBlock Text="ПЕРЕГЕНЕРУВАТИ СЕКЦІЇ" Style="{StaticResource GroupTitle}"/>
+              <Border Width="18" Height="18" CornerRadius="2" Background="{StaticResource Ink}" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock Text="↻" FontFamily="Segoe UI Symbol" FontSize="12" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+            </StackPanel>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock TextWrapping="Wrap" FontFamily="{StaticResource Cond}" FontSize="13"
+                       Foreground="{StaticResource Graphite}" Margin="0,0,0,12"
+                       Text="Позначені секції розкладуться заново за поточною геометрією моделі — після зміни плити. Інші не зміняться."/>
+            <WrapPanel x:Name="regen_panel"/>
+          </StackPanel>
+        </Expander>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

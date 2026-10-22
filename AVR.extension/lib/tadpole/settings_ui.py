@@ -15,7 +15,7 @@ import os
 from pyrevit import forms
 
 from System.Windows import (
-    Thickness, GridLength, VerticalAlignment, CornerRadius,
+    Thickness, GridLength, VerticalAlignment, CornerRadius, Visibility,
 )
 from System.Windows.Controls import (
     TextBlock, TextBox, CheckBox, Grid, ColumnDefinition, Border,
@@ -27,8 +27,9 @@ from tadpole import settings
 
 XAML = os.path.join(os.path.dirname(__file__), 'settings.xaml')
 
-MUTED = SolidColorBrush(Color.FromRgb(107, 110, 115))
-FAINT = SolidColorBrush(Color.FromRgb(146, 152, 160))
+# the AVR Design System's greys (settings.xaml holds the same as resources)
+MUTED = SolidColorBrush(Color.FromRgb(0x5C, 0x63, 0x6B))
+FAINT = SolidColorBrush(Color.FromRgb(0x8F, 0x94, 0x9C))
 
 # no. | module | switch | word | switch | word.
 # Each width is what its OWN content needs: the stair words are short,
@@ -39,7 +40,13 @@ COLUMNS = (34, 92, 44, 96, 44, 124)
 # Every other row gets a white band. The payload grouped sections in a
 # collapsible accordion; this is not that, but sixteen identical rows
 # need something to track the eye along.
-STRIPE = SolidColorBrush(Color.FromRgb(255, 255, 255))
+STRIPE = SolidColorBrush(Color.FromRgb(0xF4, 0xF5, 0xF6))      # surface-2, on the white panel
+
+# THE SECTIONS' ROWS ARE OUT OF THE WINDOW FOR NOW (user, 2026-10-16: "ту частину 2 - де є більші/менші квартири та
+# положення сходової і тд поки збережи в пам'яті, але з UI його варто забрати"): every section runs on
+# settings.defaults - the project's module, the stairs on their default side, the smaller flats. True brings the
+# group (card_sections in the XAML) and its rows back as they were.
+SHOW_SECTIONS = False
 
 # (what OFF means, what ON means) - the payload's own labels
 STAIRS_LABELS = (u'Дефолтні', u'Протилежні')
@@ -63,6 +70,8 @@ class SettingsWindow(forms.WPFWindow):
             if section_keys else
             u'У моделі не знайдено жодної секції.')
 
+        if SHOW_SECTIONS:
+            self.card_sections.Visibility = Visibility.Visible
         self._fill(self.values)
         self._build_sections(self.values)
 
@@ -83,6 +92,8 @@ class SettingsWindow(forms.WPFWindow):
     def _build_sections(self, values):
         self.sections_panel.Children.Clear()
         self.rows = {}
+        if not SHOW_SECTIONS:
+            return
 
         keys = list(self.section_keys)
         if keys:
@@ -106,13 +117,14 @@ class SettingsWindow(forms.WPFWindow):
         # A caption spans the switch AND its word, so it sits over the
         # control it names rather than over the word beside it.
         for index, span, text in ((0, 1, u'№'),
-                                  (1, 1, u'Модуль, мм'),
-                                  (2, 2, u'Сходи'),
-                                  (4, 2, u'Квартирографія')):
+                                  (1, 1, u'МОДУЛЬ, ММ'),
+                                  (2, 2, u'СХОДИ'),
+                                  (4, 2, u'КВАРТИРОГРАФІЯ')):
             block = TextBlock()
             block.Text = text
             block.Foreground = FAINT
             block.FontSize = 11
+            block.FontFamily = self.FindResource('Cond')
             Grid.SetColumn(block, index)
             Grid.SetColumnSpan(block, span)
             grid.Children.Add(block)
@@ -153,7 +165,7 @@ class SettingsWindow(forms.WPFWindow):
         band = Border()
         band.Child = grid
         band.Padding = Thickness(6, 4, 6, 4)
-        band.CornerRadius = CornerRadius(6)
+        band.CornerRadius = CornerRadius(2)
         band.Background = STRIPE if index % 2 else Brushes.Transparent
         return band
 
@@ -172,7 +184,7 @@ class SettingsWindow(forms.WPFWindow):
         text.Text = on_text if checked else off_text
 
         toggle = CheckBox()
-        toggle.Style = self.FindResource('ToggleSwitch')
+        toggle.Style = self.FindResource('Check')
         toggle.IsChecked = checked
 
         def changed(sender, args):
@@ -192,6 +204,9 @@ class SettingsWindow(forms.WPFWindow):
             u'areas': [self.tb_a1.Text, self.tb_a2.Text, self.tb_a3.Text],
             u'sections': {},
         }
+        if not SHOW_SECTIONS:
+            # no rows on the window: each section on its defaults
+            values[u'sections'] = settings.defaults(self.section_keys)[u'sections']
         for key, (module, stairs, larger) in self.rows.items():
             values[u'sections'][key] = {
                 u'module': module.Text,

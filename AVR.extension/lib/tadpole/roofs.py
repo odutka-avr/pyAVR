@@ -361,7 +361,33 @@ VARIANTS = [
 ]
 
 
+_WORKS = [None]               # the call variant that bound on this engine, once one has
+
+
 def call_variant(name, doc, curve_array, level, roof_type, method=None):
+    """Invoke NewFootPrintRoof - `name` first, or the variant already seen to work. A variant the engine cannot
+    BIND (a TypeError before Revit is called - IronPython's "expected StrongBox[ModelCurveArray], got
+    ModelCurveArray") hands over to the next one, and the one that binds is kept for the rest of the run.
+
+    WITHOUT THE PROBE THE DEFAULT WAS A GUESS (user, 2026-10-20, Str200 V1): the probe runs on a commercial or
+    parking roof, and a model with none skips it - every core, corridor and flat then went to 'direct4_instance',
+    which this IronPython does not bind, and the run placed nothing at all. Raises on a real failure."""
+    order = [n for n in [_WORKS[0], name] if n] + [n for n in VARIANTS if n not in (_WORKS[0], name)]
+    last = None
+    for variant in order:
+        if variant == 'reflection_instance' and method is None:
+            continue
+        try:
+            out = _call_variant(variant, doc, curve_array, level, roof_type, method)
+        except TypeError as error:
+            last = error            # not bound - nothing reached Revit; the next way
+            continue
+        _WORKS[0] = variant
+        return out
+    raise last
+
+
+def _call_variant(name, doc, curve_array, level, roof_type, method=None):
     """Invoke NewFootPrintRoof one specific way. Raises on failure."""
     global CALL_MODE
 
@@ -551,7 +577,7 @@ def probe(doc, result, resolved_types):
                 trans = Transaction(doc, 'Tadpole probe')
                 trans.Start()
                 try:
-                    roof, _mapper = call_variant(
+                    roof, _mapper = _call_variant(
                         variant, doc, array, level, roof_type, method)
                     ok = roof is not None
                     message = 'ok' if ok else 'returned None'
@@ -567,6 +593,7 @@ def probe(doc, result, resolved_types):
                 info['attempts'].append((variant, ok, message))
                 if ok:
                     info['variant'] = variant
+                    _WORKS[0] = variant
                     return True, info
 
             return False, info

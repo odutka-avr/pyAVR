@@ -205,3 +205,10 @@ def outer_loop(face):
             best_len = length
             best = loop
     return best, total
+
+
+# the rounded corners live in `arcs` (pure, no Revit at import); the Revit side reaches them through here too
+from tadpole.arcs import (  # noqa: E402,F401
+    ARCS, ARC_SUN, ARC_STEP_DEG, ARC_FACE_DEG, ARC_TOL_FT, curve_points, footprint_array, _circle_of,
+    side_arc_extension, arc_lit_share, arc_samples,
+)

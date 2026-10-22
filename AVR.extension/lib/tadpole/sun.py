@@ -1145,3 +1145,68 @@ def probe_occlusion(obstructions, options, limit=12, prefer=None):
                      box_hit, solid_hit, face_hit,
                      volume * 0.3048 ** 3, faces, blocker.mode, error))
     return rows
+
+
+def arc_study(records, vectors, obstructions, reach, options, required=None, step_deg=10.0):
+    """The sun on the ROUNDED walls (user, 2026-10-20, Str200 V1): a curved face is no wall run, so the study never
+    saw it. Every vertical arc at the foot of a curved face of `records` is sampled every `step_deg` at window height,
+    a hand off its surface, against the same sun and the same obstructions as the walls; the samples go to
+    `geom.ARC_SUN` by (arc, level). Returns how many arcs were studied. Never raises."""
+    from tadpole import arcs
+    required = SUN_REQUIRED_HOURS if required is None else required
+    offset = SUN_SURFACE_OFFSET_MM / MM
+    height = SUN_SAMPLE_HEIGHT_MM / MM
+    per_step = 1.0 / float(SUN_TIMESTEP)
+    count = 0
+    for rec in records:
+        try:
+            if not rec.has_geometry:
+                continue
+            faces = rec.geometry['faces'].get(geom.NONPLANAR, [])
+        except Exception:
+            continue
+        for face in faces:
+            try:
+                loop, _n = geom.outer_loop(face)
+                if loop is None:
+                    continue
+                curves = [c for c in loop]
+                zs = [c.GetEndPoint(k).Z for c in curves for k in (0, 1)]
+                z0, z1 = min(zs), max(zs)
+                if z1 - z0 < 1.0:
+                    continue                    # not a wall
+                for crv in curves:
+                    if crv.GetType().Name != 'Arc':
+                        continue
+                    a, b = crv.GetEndPoint(0), crv.GetEndPoint(1)
+                    if abs(a.Z - z0) > 0.01 or abs(b.Z - z0) > 0.01:
+                        continue                # the arc at its foot only
+                    c, r = crv.Center, crv.Radius
+                    key = (round(c.X, 3), round(c.Y, 3), round(r, 3))
+                    n = max(1, int(math.ceil(math.degrees(crv.Length / r) / step_deg)))
+                    samples = []
+                    for i in range(n):
+                        p = crv.Evaluate((i + 0.5) / n, True)
+                        nx, ny = p.X - c.X, p.Y - c.Y
+                        length = math.hypot(nx, ny) or 1.0
+                        nx, ny = nx / length, ny / length
+                        try:
+                            fn = face.ComputeNormal(face.Project(p).UVPoint)
+                            if fn.X * nx + fn.Y * ny < 0.0:
+                                nx, ny = -nx, -ny
+                        except Exception:
+                            pass
+                        origin = XYZ(p.X + nx * offset, p.Y + ny * offset,
+                                     z0 + min(height, max(0.0, (z1 - z0) * 0.5)))
+                        hours = 0.0
+                        for _hour, vector in vectors:
+                            if vector.X * nx + vector.Y * ny <= 0.0:
+                                continue
+                            if is_lit(origin, vector, obstructions, reach, options):
+                                hours += per_step
+                        samples.append((p.X, p.Y, nx, ny, hours >= required))
+                    arcs.ARC_SUN.setdefault((key, rec.level_name), []).extend(samples)
+                    count += 1
+            except Exception:
+                continue
+    return count

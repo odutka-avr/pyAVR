@@ -346,7 +346,7 @@ FACE_MODE_REVIT_THRESHOLD = 1000
 
 
 # ======================================================================
-# Button 5 — Tadpole (input collection)
+# Button 5 — Tadpole
 #
 # Assembles, in one run, everything the apartment cutter needs. Two of
 # those things have to exist as model elements; the rest are computed and
@@ -647,7 +647,12 @@ APARTMENT_GAP_SLIVER_MM = 1000.0
 # frontage must still meet the corridor. Closing a hole by handing it to
 # the flat across, instead, cut the end flat off the corridor altogether
 # (section 9, user 2026-10-05) - the whole gap goes to the end flat.
-APARTMENT_DOOR_MIN_MM = 1000.0
+# A DOOR IS 1.8 M - the corridor's own width (user, 2026-10-20, section 5's
+# 4713519 kept 1004 mm of wall on the corridor: "1.8 м всюди, в деяких
+# випадках 1.5 достатньо"). 1.5 m only where 1.8 cannot be had at all, and
+# then it ranks below every choice that keeps 1.8 (APARTMENT_DOOR_LEAST_MM).
+APARTMENT_DOOR_MIN_MM = 1800.0
+APARTMENT_DOOR_LEAST_MM = 1500.0
 
 # HOW CLOSE A WALL HAS TO COME TO A CORNER to share the room there. Two
 # stretches of facade meeting at a corner of the flat light ONE room
@@ -674,3 +679,11 @@ APARTMENT_AREA_PARAM = u'AVR_Площа Квартири'
 APARTMENT_UEC_PARAM = u'UEC'
 APARTMENT_UNIT_LIVING = u'Житло'
 APARTMENT_UNIT_OTHER = u'Нежитлове'
+
+# THE TOOL'S OWN CORES, CORRIDORS AND FLATS are its output too, and are kept out of collecting like the roofs and
+# walls above. They carry 'Житло' / 'Нежитлове' in AVR_Тип юніта (APARTMENT_UNIT_*), so a run on a model that already
+# holds them read them as sections (user, 2026-10-16: sections laid again on the model's geometry now - 366 roofs
+# "Житло" in the model were Tadpole's flats). Added here, at the foot, because these names are defined above.
+EXCLUDE_TYPE_NAMES = set(EXCLUDE_TYPE_NAMES) | set(STAIR_ROOF_TYPES) | set(CORRIDOR_ROOF_TYPES) | set(
+    APARTMENT_ROOF_TYPES.values()) | set([APARTMENT_DEAD_ROOF_TYPE])
+EXCLUDE_TYPE_NAMES_FOLDED = set([n.strip().lower() for n in EXCLUDE_TYPE_NAMES if n])

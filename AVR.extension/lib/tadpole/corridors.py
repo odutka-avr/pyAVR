@@ -156,8 +156,8 @@ def plate_outline(record):
         return None
     points = []
     for curve in loop:
-        p = curve.GetEndPoint(0)
-        points.append((p.X, p.Y))
+        # an arc is followed, not cut by its chord (`geom.curve_points`, user 2026-10-20)
+        points.extend(geom.curve_points(curve))
     points = clean_plate(points)
     return points if len(points) >= 3 else None
 
@@ -419,6 +419,28 @@ def plate_map(records):
     return out
 
 
+def _holds(plate, core, slack_m2=1.5):
+    """Does `plate` hold the `core` (all but `slack_m2`)?"""
+    from tadpole import lpoly
+    pieces = lpoly.decompose(lpoly.ccw(list(core)))
+    whole = lpoly.total_area(pieces)
+    inside = 0.0
+    for pa in pieces:
+        for pb in lpoly.decompose(lpoly.ccw(list(plate))):
+            got = lpoly.intersect_convex(pa, pb)
+            if got:
+                inside += lpoly.area(got)
+    return (whole - inside) * 0.09290304 <= slack_m2
+
+
+def _same_outline(a, b):
+    from tadpole import lpoly
+    area_a, area_b = abs(lpoly.area(lpoly.ccw(list(a)))), abs(lpoly.area(lpoly.ccw(list(b))))
+    ca = (sum(p[0] for p in a) / float(len(a)), sum(p[1] for p in a) / float(len(a)))
+    cb = (sum(p[0] for p in b) / float(len(b)), sum(p[1] for p in b) / float(len(b)))
+    return abs(area_a - area_b) <= 0.01 * max(area_a, area_b) and math.hypot(ca[0] - cb[0], ca[1] - cb[1]) < 1.0
+
+
 def plan(outer_walls, inner_walls, stair_plans, records):
     """[CorridorPlan] - one per floor that has a stair to connect to."""
     width_ft = CORRIDOR_WIDTH_MM / FT_TO_MM
@@ -436,12 +458,28 @@ def plan(outer_walls, inner_walls, stair_plans, records):
         if points:
             plate_by_floor[key] = points
 
+    # A FLOOR WHOSE PLATE DOES NOT HOLD THE CORE draws its corridor as the floors above draw theirs - on the plate
+    # most floors of the section have that holds the core - and so outside its own plate (user, 2026-10-21, ORLK
+    # R24-2 section 66: "цю сходову і коридор треба вписувати поза плиту")
+    borrowed = {}
+    for item in stair_plans:
+        key = (item.section, item.level_name)
+        plate = plate_by_floor.get(key)
+        if not plate or _holds(plate, item.points):
+            continue
+        hosts = [k for k, p in plate_by_floor.items() if k[0] == item.section and _holds(p, item.points)]
+        if hosts:
+            hosts.sort(key=lambda k: -sum(1 for o in hosts if _same_outline(plate_by_floor[o], plate_by_floor[k])))
+            borrowed[key] = plate_by_floor[hosts[0]]
+
     out = []
     for item in stair_plans:
         key = (item.section, item.level_name)
         runs = runs_by_floor.get(key)
         if not runs:
             continue
+        if key in borrowed:
+            plate_by_floor[key] = borrowed[key]
         # AN L-SHAPED PLATE has its own corridor: one roof, two bands that
         # meet in the inner corner (user, 2026-10-06). The stair and the
         # 12 m cap are not part of it yet.
@@ -584,6 +622,8 @@ def plan(outer_walls, inner_walls, stair_plans, records):
         rule = u'{0:.2f} m long, wings {1:.2f} / {2:.2f} m{3}'.format(
             (u1 - u0) * 0.3048, (su0 - u0) * 0.3048, (u1 - su1) * 0.3048,
             u' - ' + u', '.join(sorted(set(notes))) if notes else u'')
+        if key in borrowed:
+            rule += u'; drawn as on the other floors, outside this floor\'s plate - the core stands outside it'
         straight = CorridorPlan(item.section, item.level_id, item.level_name,
                                 points, rule,
                                 recipe=dict(u=u, v=v, u0=u0, u1=u1,
@@ -644,12 +684,7 @@ def place(doc, plans, roof_type, variant=None, method=None, progress=None):
                 continue
             with tx.Attempt(doc) as attempt:
                 z = level.Elevation
-                array = CurveArray()
-                count = len(item.points)
-                for i in range(count):
-                    a = item.points[i]
-                    b = item.points[(i + 1) % count]
-                    array.Append(Line.CreateBound(XYZ(a[0], a[1], z), XYZ(b[0], b[1], z)))
+                array = geom.footprint_array(item.points, z)
                 roof, mapper = roofs.call_variant(variant or 'direct4_instance', doc, array,
                                                   level, roof_type, method=method)
                 roofs._flatten(roof, mapper)

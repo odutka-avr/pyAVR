@@ -102,7 +102,9 @@ def analyze(plate):
     opposite each; ends=[(a, b), (a, b)] - the end of each wing; width=[ft,
     ft] - how wide each wing is between its two faces). Index 0 and 1 go
     together: face 0, opposite 0, end 0, width 0 are one wing."""
-    pts = _drop_collinear([tuple(p) for p in plate])
+    # a rounded corner is read as the corner it rounds (`arcs.sharpen`) - one inner corner, not a dozen
+    from tadpole import arcs
+    pts = _drop_collinear([tuple(p) for p in arcs.sharpen(plate)])
     count = len(pts)
     if count < 6:
         return None

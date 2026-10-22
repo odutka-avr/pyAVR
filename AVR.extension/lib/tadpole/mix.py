@@ -162,6 +162,7 @@ class Move(object):
             if f.live():
                 self.delta[f.rooms] += 1
         self.spread = {}            # {target state: weight} the change reaches besides its own floor (working floor)
+        self.corridor = None        # the floor's corridor ring the change needs, run on (working floor only)
         self.key = (state.section, state.name, kind, tuple(sorted(_key(state.flats[i].points) for i in remove)),
                     tuple(sorted(f.rooms for f in add)))
 
@@ -307,7 +308,7 @@ def candidates(state, short_1k):
             normals = [lines[0][2] for (a, b), lines in shared.items() if i in (a, b)]
             if not normals:
                 continue
-            for move, miss in _cuts(state, _pieces(flats[i].points), normals[0], [i], u'cut in two'):
+            for move, miss in _cuts(state, _pieces(flats[i].points), normals[0], [i], u'cut in two', doors=True):
                 offer(move, miss)
     # 5. two 2k in a row cut again into three 1k - only while the 1k are short; any 2k but a pistolet, also one a
     #    floor's own rules made
@@ -415,8 +416,9 @@ def _grow_into_dead(state, i, j):
     return [Move(state, [i, j], add, u'grow')]
 
 
-def _cuts(state, pieces, n, remove, what):
-    """[(Move, miss)] - `pieces` cut in two by a wall square to `n`, every CUT_STEP_MM, both parts flats."""
+def _cuts(state, pieces, n, remove, what, doors=False):
+    """[(Move, miss)] - `pieces` cut in two by a wall square to `n`, every CUT_STEP_MM, both parts flats. With
+    `doors`, a part left without a door is given one (`_give_door`)."""
     from tadpole import apartments as A
     pts = [p for pc in pieces for p in pc]
     proj = [p[0] * n[0] + p[1] * n[1] for p in pts]
@@ -433,19 +435,131 @@ def _cuts(state, pieces, n, remove, what):
         if a is None or b is None:
             continue
         ga, gb = state.read(a), state.read(b)
+        ring, how = None, u''
         if not (state.good(ga, a) and state.good(gb, b)):
-            continue
+            got = _give_door(state, a, b) if doors else None
+            if got is None:
+                continue
+            a, b, ga, gb, ring, how = got
         old = sorted(state.flats[i].rooms for i in remove)
         if sorted((ga['rooms'], gb['rooms'])) == old:
             continue
-        text = u'{0} - {1} made {2}k + {3}k'.format(
-            u' + '.join(u'{0}k'.format(r) for r in old), what, ga['rooms'], gb['rooms'])
+        text = u'{0} - {1} made {2}k + {3}k{4}'.format(
+            u' + '.join(u'{0}k'.format(r) for r in old), what, ga['rooms'], gb['rooms'],
+            u'; ' + how if how else u'')
         move = Move(state, list(remove), [_new_flat(state, a, ga, text), _new_flat(state, b, gb, text)], u'cut')
+        if ring is not None:
+            move.corridor = ring
+            move.key = move.key + (u'corridor run on',)
         miss = A.miss(ga['raw'], ga['rooms']) + A.miss(gb['raw'], gb['rooms'])
         key = move.key
         if key not in out or miss < out[key][1] - 1e-9:
             out[key] = (move, miss)
     return list(out.values())
+
+
+def _door_ok(state, got, ring, corridor):
+    """`got` a flat in its band with a lit module and a door on `corridor`."""
+    from tadpole import apartments as A, lflats
+    if got is None or got['dead'] or got['rooms'] not in (1, 2, 3) or not got['lit_ok']:
+        return False
+    if not A.in_band(got['raw'], got['rooms']):
+        return False
+    return lflats.frontage(ring, corridor) >= DOOR_MM / FT_MM - 0.05
+
+
+def _give_door(state, a, b):
+    """(a, b, read a, read b, corridor ring or None, what was done) - the two parts of a flat the pass cut in two,
+    the one left without a door given one; or None (user, 2026-10-20, Str200 V1 section 6, 4517543: the 3k at the
+    gable held the corridor's band past its end, and cut in two its far half had no door, so the "most 1k" pass left
+    it whole). In order:
+
+      1. THE CORRIDOR RUN ON along its band to the part, the strip taken from the flat itself, the new end no
+         further than CORRIDOR_MAX_WING_M from the core (`apartments._split_exits`) - on the working floor, whose
+         corridor the pass may change;
+      2. ELSE A WAY THROUGH THE OTHER PART: "коридор може видовжуватися лише до 12 м довжини. якщо нема виходу в
+         коридор і далі, то квартира має його прорубувати через сусідку" - the same strip of band, the corridor's
+         width, from the corridor's end to the part, taken from the other part and given to it; its door is then
+         the corridor's end face.
+
+    Both parts must be flats in their bands with a lit module and a door."""
+    from tadpole import apartments as A
+    if state.is_l or not state.corridor or getattr(state.floor, 'band', None) is None:
+        return None
+    ga, gb = state.read(a), state.read(b)
+    for got in (ga, gb):
+        if got is None or got['dead'] or got['rooms'] not in (1, 2, 3) or not got['lit_ok'] or \
+                not A.in_band(got['raw'], got['rooms']):
+            return None
+    if state.working:
+        try:
+            parts, ring, _note, _given = A._split_exits(state.floor, [a, b], state.corridor)
+        except Exception:
+            parts, ring = None, None
+        if parts is not None and ring is not None:
+            ga2, gb2 = state.read(parts[0]), state.read(parts[1])
+            if _door_ok(state, ga2, parts[0], ring) and _door_ok(state, gb2, parts[1], ring):
+                return parts[0], parts[1], ga2, gb2, ring, u'the corridor run on along its band to give it a door'
+    got = _passage(state, a, b)
+    if got is not None:
+        return got[0], got[1], got[2], got[3], None, got[4]
+    return None
+
+
+def _passage(state, a, b):
+    """(a, b, read a, read b, note) with the part of the two that has no door given a way to the corridor's end
+    through the other: the band from the corridor's end to it, the corridor's width - or None."""
+    from tadpole import apartments as A, lflats
+    floor = state.floor
+    door_ft = DOOR_MM / FT_MM
+    corridor = list(state.corridor)
+    b0, b1 = min(floor.band), max(floor.band)
+    u_of = lambda ring: [A.to_uv(p, floor.u, floor.v)[0] for p in ring]
+    cu = u_of(corridor)
+    cu0, cu1 = min(cu), max(cu)
+    parts = [a, b]
+    for k in (0, 1):
+        shut, other = parts[k], parts[1 - k]
+        if lflats.frontage(shut, corridor) >= door_ft - 0.05:
+            continue
+        pu = u_of(shut)
+        pv = [A.to_uv(p, floor.u, floor.v)[1] for p in shut]
+        holds = min(pv) < b1 - 0.05 and max(pv) > b0 + 0.05
+        reach = 0.0 if holds else door_ft
+        if min(pu) >= cu1 - 0.05:
+            ua, ub = cu1, min(pu) + reach
+        elif max(pu) <= cu0 + 0.05:
+            ua, ub = max(pu) - reach, cu0
+        else:
+            return None
+        if ub - ua < 0.05:
+            return None
+        strip = lpoly.ccw([A.to_xy(p, floor.u, floor.v) for p in ((ua, b0), (ub, b0), (ub, b1), (ua, b1))])
+        strip_ft2 = lpoly.area(strip)
+        pieces = lpoly.decompose(lpoly.ccw(list(other)))
+        left = lpoly.subtract_all(pieces, [strip])
+        taken = lpoly.total_area(pieces) - lpoly.total_area(left)
+        # the strip lies in the other part, all of it - or what the part holds of it itself
+        own = lpoly.decompose(lpoly.ccw(list(shut)))
+        own_in = lpoly.total_area(own) - lpoly.total_area(lpoly.subtract_all(own, [strip]))
+        if abs(taken + own_in - strip_ft2) > 0.5:
+            return None
+        groups = [g for g in lpoly.components(left) if lpoly.total_area(g) * FT_TO_M ** 2 > 0.5]
+        if len(groups) != 1:
+            return None
+        other2 = _ring_of(groups[0])
+        shut2 = _ring_of(lpoly.subtract_all(own, [strip]) + [strip])
+        if other2 is None or shut2 is None:
+            return None
+        g_shut, g_other = state.read(shut2), state.read(other2)
+        if not (_door_ok(state, g_shut, shut2, corridor) and _door_ok(state, g_other, other2, corridor)):
+            return None
+        note = u'a way {0:.1f} m long through the flat beside it to the corridor\'s end'.format(
+            (ub - ua) * FT_TO_M)
+        if k == 0:
+            return shut2, other2, g_shut, g_other, note
+        return other2, shut2, g_other, g_shut, note
+    return None
 
 
 def _cuts3(state, pieces, n, remove):
@@ -521,8 +635,11 @@ def deviation(counts, brief):
     return sum(gaps), max(gaps)
 
 
-def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progress=None, budget=None):
-    """The pass. Returns dict(plans, overlays, finals, moves, before, after, reached, why, seconds) - `plans` the
+def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progress=None, budget=None, only=None,
+        held=None):
+    """The pass. `only` - the sections it may change (a run that lays some sections again, `tadpole.rerun`); the
+    others are counted at `held` {section: {1: n, 2: n, 3: n}}, the flats they have in the model, weighted by their
+    floors. Returns dict(plans, overlays, finals, moves, before, after, reached, why, seconds, section_counts) - `plans` the
     flats of the working floors with the pass's changes in them, `overlays` {(section, level name): dict(old, parts,
     note, key)} the changes of the other unique floors (`apartments.apply_mix`), `finals` {(section, level name):
     [(rooms, raw, dead)]} every other unique floor as it comes out, for the report."""
@@ -539,6 +656,10 @@ def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progres
         if not here or any(getattr(p, 'skipped', False) for p in here):
             continue
         sections[section] = wf
+    if only is not None:
+        only = set(only)
+        sections = dict((s, wf) for s, wf in sections.items() if s in only)
+    held_out = dict((s, dict(c)) for s, c in (held or {}).items() if only is not None and s not in only)
     if budget is None:
         budget = max(MIN_SECONDS, SECONDS_PER_SECTION * len(sections))
 
@@ -583,6 +704,9 @@ def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progres
 
     def total_counts():
         out = {1: 0, 2: 0, 3: 0}
+        for c in held_out.values():
+            for k in out:
+                out[k] += c.get(k, 0)
         for floor_list in states.values():
             for st in floor_list:
                 c = st.counts()
@@ -643,6 +767,19 @@ def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progres
         if st.working:
             # the first group itself: the flats of the working floor replaced, every other floor laid on it again
             saved = (list(plans), states[st.section])
+            # ... and its corridor run on, where the change needs it - in every plan of the section that is the
+            # working floor's corridor (the floors laid on it read it from there)
+            saved_cor = []
+            if getattr(move, 'corridor', None):
+                w_cor = next((c for c in corridors_ if c.section == st.section and c.level_name == st.name), None)
+                if w_cor is not None:
+                    was_key = A._ring_key(w_cor.points)
+                    for c in corridors_:
+                        if c.section == st.section and A._ring_key(c.points) == was_key:
+                            saved_cor.append((c, c.points, c.rule))
+                            c.points = list(move.corridor)
+                            c.rule = (c.rule or u'') + u'; run on along its band for a flat the mix of the file cut in two'
+
             gone = [st.flats[i].plan for i in move.remove]
             live_gone = [g for g in gone if not g.dead] or gone
             base = live_gone[0]
@@ -670,6 +807,8 @@ def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progres
                                         why=u'a flat of the floors laid on it beyond its band'))
                 plans[:] = saved[0]
                 states[st.section] = saved[1]
+                for c, points, rule in saved_cor:
+                    c.points, c.rule = points, rule
                 for other in states[st.section]:
                     other.cache = None
                 banned.add(move.key)
@@ -819,6 +958,15 @@ def run(stairs_, corridors_, floors_, plans_, unique_floors, brief=None, progres
                 note=u'; '.join(sorted(set(f.rule for f in new))),
                 key=(tuple(sorted(engine_key for engine_key in engine if engine_key not in final)),
                      tuple(sorted((k, f.rooms) for k, f in final.items() if k not in engine))))
+    section_counts = dict(held_out)
+    for section, floor_list in states.items():
+        c = {1: 0, 2: 0, 3: 0}
+        for st in floor_list:
+            got = st.counts()
+            for k in c:
+                c[k] += got[k] * st.weight
+        section_counts[section] = c
     return dict(plans=plans, overlays=overlays, finals=finals, moves=done, refused=refused, before=before, after=counts,
+                section_counts=section_counts,
                 reached=deviation(counts, brief)[1] <= TOLERANCE_PP, why=why, brief=brief, tolerance=TOLERANCE_PP,
                 seconds=time.time() - started, budget=budget, max_1k=bool(getattr(config, 'MAX_1K', False)))

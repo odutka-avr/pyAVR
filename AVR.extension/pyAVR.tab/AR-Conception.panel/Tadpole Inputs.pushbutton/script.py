@@ -34,14 +34,47 @@ MODIFIES THE MODEL. Both writes sit in one TransactionGroup, so a single
 Ctrl+Z reverses the whole run.
 """
 
-__title__ = 'Tadpole\n(inputs)'
-__author__ = 'Tadpole'
+__title__ = 'Tadpole'
+__author__ = 'Roksolana Kordyiaka'
+# THE ENGINE STAYS: the window that offers the core on the other side stays open after the run, and its button lays
+# the model again through an ExternalEvent (`tadpole.rerun`) - both need this engine alive after the script ends.
+# pyRevit reads it from bundle.yaml (engine: persistent: true); this line alone was not taken (2026-10-16 crash)
+__persistentengine__ = True
+
+
+def _fresh_modules():
+    """THE PERSISTENT ENGINE KEEPS THE OLD CODE (user, 2026-10-21, section 69 "у ревіт не спрацювало"): the tadpole
+    modules imported once stay in sys.modules for as long as Revit runs, and a new version copied in is never read.
+    When any lib/tadpole file is newer than the ones loaded, they are all dropped and imported afresh - unless the
+    window of the last run is laying sections again (its state lives in `tadpole.rerun`)."""
+    import os
+    import sys
+    try:
+        lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), u'..', u'..', u'lib', u'tadpole')
+        stamp = max(os.path.getmtime(os.path.join(lib, n)) for n in os.listdir(lib) if n.endswith(u'.py'))
+    except Exception:
+        return
+    old = getattr(sys, '_tadpole_stamp', None)
+    if 'tadpole' not in sys.modules:
+        sys._tadpole_stamp = stamp          # the first run in this Revit: nothing loaded yet
+        return
+    if old is not None and stamp <= old:
+        return
+    rerun = sys.modules.get('tadpole.rerun')
+    if rerun is not None and getattr(rerun, 'AGAIN', None) is not None:
+        return
+    sys._tadpole_stamp = stamp
+    for name in [n for n in list(sys.modules) if n == 'tadpole' or n.startswith('tadpole.')]:
+        del sys.modules[name]
+
+
+_fresh_modules()
 
 from pyrevit import script, revit, forms
 
 from tadpole import (
     collect, report, roofs, build, sun, tx, ui, inputs, settings_ui, unique,
-    stairs, corridors, buildings, splash, apartments, groups, mix,
+    stairs, corridors, buildings, splash, apartments, groups, mix, rerun,
 )
 from tadpole.config import (
     SUN_DARK_WALL_TYPE, SUN_LATITUDE_FALLBACK,
@@ -51,8 +84,26 @@ from tadpole.config import (
 
 
 doc = revit.doc
-output = script.get_output()
-output.close_others(all_open_outputs=True)
+import time as _time
+run_started = _time.time()          # the run's time, for the summary sent to the chat (`tadpole.chat`)
+# SECTIONS LAID AGAIN from the window at the end of the last run (`tadpole.rerun`): its settings, its sections with
+# the core across, the sections to lay again (`only` - the rest of the model is not touched), the first run's inputs
+# and the report window it printed into - the new report goes on below the old one
+again = rerun.take()
+point = bool(again and again.get('base') and again.get('only'))
+base = again['base'] if point else None
+only = set(again['only']) if point else None
+# SECTIONS LAID AGAIN ON THE MODEL'S GEOMETRY NOW (user, 2026-10-16: "якщо архітектор ... схоче змінити трошки плиту
+# секції в посадці, і перегенерити результат"): such a run collects and studies the sun again instead of taking the
+# first run's inputs - and writes, as any point run, only its sections
+fresh = set(again.get('fresh') or ()) if point else set()
+if again and again.get('output') is not None:
+    output = again['output']
+else:
+    output = script.get_output()
+    output.close_others(all_open_outputs=True)
+# the report in the company's style (AVR Design System) - before anything is printed
+report.style(output)
 
 def quit_run():
     """Leave, taking the card down. Every early exit goes through here."""
@@ -231,8 +282,8 @@ def place_test_geometry(doc, outer_walls, inner_walls, darkloft, plates,
 
 
 def cancelled(bar):
-    """Stop cleanly, before anything has been written."""
-    if not bar.cancelled:
+    """Stop cleanly, before anything has been written. The x on the "Work in Frogress" card asks for it too."""
+    if not bar.cancelled and not splash.cancel_requested:
         return False
     output.print_md('## Cancelled')
     output.print_md('_Stopped before anything was written to the model._')
@@ -249,7 +300,9 @@ def cancelled(bar):
 latitude, is_default = sun.site_latitude(doc)
 north = sun.true_north_angle(doc)
 
-if is_default:
+if again:
+    latitude = again.get('latitude', latitude)
+elif is_default:
     choice = forms.alert(
         'The site is still at Revit\'s Boston default '
         '({0:.2f} deg).\n\nThe sun study needs a real latitude.'.format(
@@ -270,11 +323,71 @@ if not vectors:
 # The settings window, before the bar opens. Its values live for this
 # run only - nothing is written anywhere - and they are printed with the
 # result, so the report cannot drift from what produced it.
-section_keys = [k for k in collect.run(doc, with_geometry=False)
-                .section_keys() if k != collect.NO_SECTION]
-setting_values = settings_ui.ask(section_keys)
+_first_look = collect.run(doc, with_geometry=False)
+section_keys = [k for k in _first_look.section_keys() if k != collect.NO_SECTION]
+# EVERY SLAB OF THE HOUSING NEEDS ITS SECTION NUMBER (user, 2026-10-20, Str200 V1: 43 slabs, none numbered - the run
+# took them for one section and fell over in the middle with a NullReference). Said at once, before the sun study.
+_unnumbered = _first_look.unnumbered()
+# a run again from the window after the run: the first run went on past this window, so it goes on the same way
+skip_unnumbered = bool(again and _unnumbered)
+if _unnumbered and not again:
+    # "треба щоб видавало помилку «бракує номера секцій», і щоб можна було виділити і подивитися що за блоки і щось
+    # змінити, або проігнорити і натиснути «далі»" (user, 2026-10-20)
+    _choice = forms.alert(
+        u'Бракує номерів секцій: {0} плит(и) житла без «AVR_Номер Секції»{1}.'.format(
+            len(_unnumbered), u'' if section_keys else u' (не пронумеровано жодної)'),
+        sub_msg=u'Tadpole розкладає квартири посекційно (одна вертикальна стопка плит = одна секція).\n'
+                u'«Виділити» - позначити ці плити в моделі й зупинитися, щоб заповнити номери.\n'
+                u'«Далі» - продовжити без них: ці плити не розкладаються.',
+        title='Tadpole', warn_icon=True,
+        options=[u'Виділити', u'Далі', u'Скасувати'])
+    if _choice == u'Виділити':
+        try:
+            from System.Collections.Generic import List
+            from Autodesk.Revit.DB import ElementId
+            revit.uidoc.Selection.SetElementIds(List[ElementId]([r.id for r in _unnumbered]))
+        except Exception as _error:
+            forms.alert(u'Не вдалося виділити: {0}'.format(_error), title='Tadpole')
+        quit_run()
+    if _choice != u'Далі':
+        quit_run()
+    if not section_keys:
+        forms.alert(u'Без цих плит розкладати нічого - жодна плита житла не має номера секції.',
+                    title='Tadpole', warn_icon=True)
+        quit_run()
+    skip_unnumbered = True
+# A SLAB MODELLED TWICE (user, 2026-10-20, Str200 V1 section 1, floor 04: two slabs one on the other - its facade
+# counted twice, the working floor laid on 16 modules where there were 8, the floors above relaid as if they had lost
+# half their facade). "якщо на посадці є дубль, треба щоб теж з'являлось віконце з попередженням його прибрати".
+_duplicates = _first_look.duplicates()
+skip_duplicates = bool(again and _duplicates)
+if _duplicates and not again:
+    _where = sorted(set(u'секція {0}, {1}'.format(a.section, a.level_name or u'?') for a, _b in _duplicates))
+    _choice = forms.alert(
+        u'Дублі плит: {0} плит(и) житла лежать на іншій плиті тієї ж секції й поверху.'.format(len(_duplicates)),
+        sub_msg=u'{0}.\n'
+                u'Фасад такого поверху рахується двічі, і секція розкладається хибно - дубль треба прибрати.\n'
+                u'«Виділити» - позначити зайві плити в моделі й зупинитися, щоб їх видалити.\n'
+                u'«Далі» - продовжити, не зважаючи на зайві плити (по одній на поверх).'.format(
+                    u'; '.join(_where[:8]) + (u'…' if len(_where) > 8 else u'')),
+        title='Tadpole', warn_icon=True,
+        options=[u'Виділити', u'Далі', u'Скасувати'])
+    if _choice == u'Виділити':
+        try:
+            from System.Collections.Generic import List
+            from Autodesk.Revit.DB import ElementId
+            revit.uidoc.Selection.SetElementIds(List[ElementId]([b.id for _a, b in _duplicates]))
+        except Exception as _error:
+            forms.alert(u'Не вдалося виділити: {0}'.format(_error), title='Tadpole')
+        quit_run()
+    if _choice != u'Далі':
+        quit_run()
+    skip_duplicates = True
+setting_values = again['values'] if again else settings_ui.ask(section_keys)
 if setting_values is None:
     quit_run()
+# every element this run creates has an id above this one: the window at the end may remove the run by it
+run_start_id = base['start_id'] if point else rerun.max_id(doc)
 # THE BANDS COME FROM THAT WINDOW, not from config.py. They decide how
 # many rooms a flat is called and which split wins, so measuring against
 # one set of numbers while the person typed another is not a reporting
@@ -313,6 +426,7 @@ section_building = {}
 corridors_placed = 0
 corridors_failed = {}
 corridors_aborted = None
+cutout_log = []
 
 apartment_plans = []
 apartments_placed = 0
@@ -340,6 +454,10 @@ l_log = []
 l_done = []
 mix_done = []
 floor_outcomes = []
+flip_offers, flip_chosen = [], set()     # the cores offered across; the window at the end reads them
+run_numbers, band_now = None, {}         # the run in numbers - the window's first card and the chat
+all_sections = []                        # every section of the file - the window's 02 laid again
+section_plates = {}                      # section -> its largest plate, the window's 03 plan
 
 
 with ui.Progress(PHASES) as bar:
@@ -347,188 +465,220 @@ with ui.Progress(PHASES) as bar:
     # ------------------------------------------------------------------
     # 1. collect
     # ------------------------------------------------------------------
-    bar.phase('collect')
-    result = collect.run(doc, with_geometry=True, progress=bar.tick)
-    if cancelled(bar):
-        quit_run()
+    # THE FIRST RUN'S INPUTS: a point run (sections laid again from the window at the end) neither collects nor
+    # studies the sun again - the model now holds the other sections' flats, and the inputs are the ones the
+    # layout on the screen was made from. A run from the ribbon keeps them for its window (`base_inputs`).
+    if point and not fresh:
+        globals().update(base['inputs'])
+        output.print_md(u'## Laid again: section(s) {0}'.format(u', '.join(sorted(u'{0}'.format(s) for s in only))))
+        output.print_md(u'_Only these sections were removed and laid again - the collecting and sun '
+                        u'study of the first run, the rest of the model as it stands._')
+    else:
+        if point:
+            output.print_md(u'## Laid again on the model as it is now: section(s) {0}'.format(
+                u', '.join(sorted(u'{0}'.format(s) for s in only))))
+            output.print_md(u'_The model collected and the sun studied again; only these sections were removed '
+                            u'and laid again, the rest of the model as it stands._')
+        names_before = dict(globals())     # what the block below sets, new or set again, is the first run's input
+        bar.phase('collect')
+        result = collect.run(doc, with_geometry=True, progress=bar.tick)
+        if cancelled(bar):
+            quit_run()
+        if skip_unnumbered:
+            _left_out = result.drop_unnumbered()
+            if _left_out:
+                output.print_md(u'**{0} плит(и) житла без номера секції пропущено** - «Далі» у вікні '
+                                u'«Бракує номерів секцій»; вони не розкладалися.'.format(_left_out))
+        if skip_duplicates:
+            _left_out = result.drop_records([b for _a, b in result.duplicates()])
+            if _left_out:
+                output.print_md(u'**{0} зайвих плит(и) - дублі на тому ж поверсі тієї ж секції - не враховано** '
+                                u'(«Далі» у вікні «Дублі плит»).'.format(_left_out))
 
-    report.inputs_brief(output, result)
+        report.inputs_brief(output, result)
 
-    # ------------------------------------------------------------------
-    # 2. resolve both type lookups BEFORE the slow part
-    #
-    # A missing type is the likeliest reason this run produces nothing,
-    # and finding that out after the sun study would be unkind.
-    # ------------------------------------------------------------------
-    bar.phase('types')
+        # ------------------------------------------------------------------
+        # 2. resolve both type lookups BEFORE the slow part
+        #
+        # A missing type is the likeliest reason this run produces nothing,
+        # and finding that out after the sun study would be unkind.
+        # ------------------------------------------------------------------
+        bar.phase('types')
 
-    resolved_all, missing_all, available, type_stats = roofs.resolve_types(doc)
-    resolved = inputs.roof_types_for_inputs(resolved_all)
-    missing = dict([(k, v) for k, v in missing_all.items()
-                    if k in INPUT_ROOF_CLASSES])
+        resolved_all, missing_all, available, type_stats = roofs.resolve_types(doc)
+        resolved = inputs.roof_types_for_inputs(resolved_all)
+        missing = dict([(k, v) for k, v in missing_all.items()
+                        if k in INPUT_ROOF_CLASSES])
 
-    if not resolved:
-        output.print_md('## No roof type resolved')
+        if not resolved:
+            output.print_md('## No roof type resolved')
+            output.print_md(
+                'Neither `commercial` nor `parking` could be matched. Scanned '
+                '{0} roof types, read {1} names.'.format(
+                    type_stats['scanned'], type_stats['named']))
+            forms.alert('Neither roof type could be resolved, so nothing would '
+                        'be placed.\n\nFix ROOF_TYPES in lib/tadpole/config.py '
+                        '— the report lists every roof type in the document.',
+                        title='Tadpole', warn_icon=True)
+            quit_run()
+
+        types = build.resolve_all(doc)
+        dark_type = inputs.find_wall_type(types, SUN_DARK_WALL_TYPE)
+
+        if dark_type is None:
+            output.print_md('## Non-insolated wall type not found')
+            output.print_md('`{0}` is not in this model. Available:'.format(
+                SUN_DARK_WALL_TYPE))
+            output.print_md('\n'.join(
+                ['- `{0}`'.format(n)
+                 for n in sorted(types['wall_available'])][:60]))
+            forms.alert('The non-insolated wall type was not found.\n\nFix '
+                        'SUN_DARK_WALL_TYPE in lib/tadpole/config.py.',
+                        title='Tadpole', warn_icon=True)
+            quit_run()
+
+        bar.done()
+
+        # ------------------------------------------------------------------
+        # 3. probe one roof and roll it back
+        # ------------------------------------------------------------------
+        bar.phase('probe')
+        probe_ok, probe_info = roofs.probe(doc, result, resolved)
+        if not probe_ok and probe_info.get('candidates', 0) == 0:
+            output.print_md('## No commercial or parking elements to probe')
+            output.print_md(
+                'Roof types resolved, but nothing in this model is classified '
+                '`commercial` or `parking`, so there was nothing to test or '
+                'place. Continuing without a roof step.')
+        elif not probe_ok:
+            report.probe_failure(output, probe_info)
+            forms.alert('Test roof placement failed, so nothing was placed.\n\n'
+                        'The model is unchanged. The report shows the real '
+                        'exception and the footprint that was attempted.',
+                        title='Tadpole', warn_icon=True)
+            quit_run()
+        bar.done()
+
+        # ------------------------------------------------------------------
+        # 4. the variables — still read only
+        # ------------------------------------------------------------------
+        records = inputs.sun_records(result, sections)
+        if not records:
+            forms.alert('No section elements matched, so there is no facade '
+                        'to analyse.', title='Tadpole', warn_icon=True)
+            quit_run()
+
+        # Classify against EVERYTHING that can abut — commercial, parking and
+        # context included — but keep only the section runs. A section wall
+        # meeting a neighbour is a party wall, and it only reads as one if the
+        # neighbour took part in the comparison.
+        bar.phase('walls')
+        abutting = inputs.abutment_records(result, sections)
+        outer_walls, inner_walls = inputs.wall_runs(
+            abutting, classes=INPUT_SUN_CLASSES, progress=bar.tick)
+        if cancelled(bar):
+            quit_run()
+
+        if not outer_walls:
+            forms.alert('No outer wall runs were found.',
+                        title='Tadpole', warn_icon=True)
+            quit_run()
+
+        # classify_floors solves every storey in one call, so there is no
+        # inner position to report — the bar sits at the phase start until
+        # it returns.
+        bar.phase('plates')
+        plates = inputs.floor_plates(records)
+        faces = inputs.horizontal_faces(records)
+        section_top_regions = inputs.section_tops(faces)
+        section_other_regions = inputs.section_non_tops(faces, section_top_regions)
+        section_bottom_faces = inputs.section_bottoms(faces)
+        valid = inputs.valid_inner(records, inner_walls)
+        bar.done()
+
+        tops = inputs.top_storeys(result, sections)
+
+        roof_targets = 0
+        for use_class in resolved:
+            for rec in result.of_class(use_class):
+                if ui.keep(rec, sections):
+                    roof_targets += 1
+
+        output.print_md('## Collecting')
         output.print_md(
-            'Neither `commercial` nor `parking` could be matched. Scanned '
-            '{0} roof types, read {1} names.'.format(
-                type_stats['scanned'], type_stats['named']))
-        forms.alert('Neither roof type could be resolved, so nothing would '
-                    'be placed.\n\nFix ROOF_TYPES in lib/tadpole/config.py '
-                    '— the report lists every roof type in the document.',
-                    title='Tadpole', warn_icon=True)
-        quit_run()
+            '{0} outer wall runs, {1} inner | {2} floor plates '
+            '| {3} commercial/parking roofs eligible'.format(
+                len(outer_walls), len(inner_walls), len(plates), roof_targets))
+        if missing:
+            output.print_md('**Skipped, roof type not found:** {0}'.format(
+                ', '.join(sorted(missing))))
 
-    types = build.resolve_all(doc)
-    dark_type = inputs.find_wall_type(types, SUN_DARK_WALL_TYPE)
+        # ------------------------------------------------------------------
+        # 5. sun study — most of the bar, because it is most of the time
+        # ------------------------------------------------------------------
+        bar.phase('sun')
+        shading_stats = {}
+        plan_bounds, min_z = inputs.study_bounds(outer_walls)
+        obstructions = sun.build_obstructions(result.records,
+                                              stats=shading_stats,
+                                              min_z=min_z,
+                                              plan_bounds=plan_bounds)
+        reach = sun.model_reach(obstructions)
+        options = sun.intersection_options()
 
-    if dark_type is None:
-        output.print_md('## Non-insolated wall type not found')
-        output.print_md('`{0}` is not in this model. Available:'.format(
-            SUN_DARK_WALL_TYPE))
-        output.print_md('\n'.join(
-            ['- `{0}`'.format(n)
-             for n in sorted(types['wall_available'])][:60]))
-        forms.alert('The non-insolated wall type was not found.\n\nFix '
-                    'SUN_DARK_WALL_TYPE in lib/tadpole/config.py.',
-                    title='Tadpole', warn_icon=True)
-        quit_run()
-
-    bar.done()
-
-    # ------------------------------------------------------------------
-    # 3. probe one roof and roll it back
-    # ------------------------------------------------------------------
-    bar.phase('probe')
-    probe_ok, probe_info = roofs.probe(doc, result, resolved)
-    if not probe_ok and probe_info.get('candidates', 0) == 0:
-        output.print_md('## No commercial or parking elements to probe')
+        context = shading_stats.get(u'other', {})
+        culled = sum(
+            per.get('below lowest sample point', 0) + per.get('beyond context reach', 0)
+            for per in shading_stats.values())
+        ref_mode = sum(per.get('ref intersector mode', 0)
+                      for per in shading_stats.values())
+        ref_unavailable = sum(per.get('ref intersector unavailable - used grid', 0)
+                              for per in shading_stats.values())
         output.print_md(
-            'Roof types resolved, but nothing in this model is classified '
-            '`commercial` or `parking`, so there was nothing to test or '
-            'place. Continuing without a roof step.')
-    elif not probe_ok:
-        report.probe_failure(output, probe_info)
-        forms.alert('Test roof placement failed, so nothing was placed.\n\n'
-                    'The model is unchanged. The report shows the real '
-                    'exception and the footprint that was attempted.',
-                    title='Tadpole', warn_icon=True)
-        quit_run()
-    bar.done()
+            'Shading: **{0}** blockers, of which **{1}** context; {2} of those '
+            'have to be tested face-first because their solids are not closed '
+            'volumes. **{3}** elements skipped before any face work - too low '
+            'or beyond {4:g} m.'.format(
+                len(obstructions), context.get('shading', 0),
+                context.get('faces mode', 0), culled,
+                SUN_CONTEXT_REACH_MM / 1000.0))
+        if ref_mode or ref_unavailable:
+            output.print_md(
+                '{0} dense mesh(es) handed to Revit\'s own ReferenceIntersector '
+                'instead of the Python face grid{1}.'.format(
+                    ref_mode,
+                    '' if not ref_unavailable else
+                    ' ({0} wanted to but fell back to the grid instead - see '
+                    'below for why)'.format(ref_unavailable)))
+        if ref_unavailable:
+            # The REAL reason, not a guessed one - see sun._new_ref_intersector.
+            errors = {}
+            for per in shading_stats.values():
+                for msg, count in (per.get('errors') or {}).items():
+                    errors[msg] = errors.get(msg, 0) + count
+            for msg, count in sorted(errors.items(), key=lambda kv: -kv[1]):
+                output.print_md('- {0} x `{1}`'.format(count, msg))
 
-    # ------------------------------------------------------------------
-    # 4. the variables — still read only
-    # ------------------------------------------------------------------
-    records = inputs.sun_records(result, sections)
-    if not records:
-        forms.alert('No section elements matched, so there is no facade '
-                    'to analyse.', title='Tadpole', warn_icon=True)
-        quit_run()
-
-    # Classify against EVERYTHING that can abut — commercial, parking and
-    # context included — but keep only the section runs. A section wall
-    # meeting a neighbour is a party wall, and it only reads as one if the
-    # neighbour took part in the comparison.
-    bar.phase('walls')
-    abutting = inputs.abutment_records(result, sections)
-    outer_walls, inner_walls = inputs.wall_runs(
-        abutting, classes=INPUT_SUN_CLASSES, progress=bar.tick)
-    if cancelled(bar):
-        quit_run()
-
-    if not outer_walls:
-        forms.alert('No outer wall runs were found.',
-                    title='Tadpole', warn_icon=True)
-        quit_run()
-
-    # classify_floors solves every storey in one call, so there is no
-    # inner position to report — the bar sits at the phase start until
-    # it returns.
-    bar.phase('plates')
-    plates = inputs.floor_plates(records)
-    faces = inputs.horizontal_faces(records)
-    section_top_regions = inputs.section_tops(faces)
-    section_other_regions = inputs.section_non_tops(faces, section_top_regions)
-    section_bottom_faces = inputs.section_bottoms(faces)
-    valid = inputs.valid_inner(records, inner_walls)
-    bar.done()
-
-    tops = inputs.top_storeys(result, sections)
-
-    roof_targets = 0
-    for use_class in resolved:
-        for rec in result.of_class(use_class):
-            if ui.keep(rec, sections):
-                roof_targets += 1
-
-    output.print_md('## Collecting')
-    output.print_md(
-        '{0} outer wall runs, {1} inner | {2} floor plates '
-        '| {3} commercial/parking roofs eligible'.format(
-            len(outer_walls), len(inner_walls), len(plates), roof_targets))
-    if missing:
-        output.print_md('**Skipped, roof type not found:** {0}'.format(
-            ', '.join(sorted(missing))))
-
-    # ------------------------------------------------------------------
-    # 5. sun study — most of the bar, because it is most of the time
-    # ------------------------------------------------------------------
-    bar.phase('sun')
-    shading_stats = {}
-    plan_bounds, min_z = inputs.study_bounds(outer_walls)
-    obstructions = sun.build_obstructions(result.records,
-                                          stats=shading_stats,
-                                          min_z=min_z,
-                                          plan_bounds=plan_bounds)
-    reach = sun.model_reach(obstructions)
-    options = sun.intersection_options()
-
-    context = shading_stats.get(u'other', {})
-    culled = sum(
-        per.get('below lowest sample point', 0) + per.get('beyond context reach', 0)
-        for per in shading_stats.values())
-    ref_mode = sum(per.get('ref intersector mode', 0)
-                  for per in shading_stats.values())
-    ref_unavailable = sum(per.get('ref intersector unavailable - used grid', 0)
-                          for per in shading_stats.values())
-    output.print_md(
-        'Shading: **{0}** blockers, of which **{1}** context; {2} of those '
-        'have to be tested face-first because their solids are not closed '
-        'volumes. **{3}** elements skipped before any face work - too low '
-        'or beyond {4:g} m.'.format(
-            len(obstructions), context.get('shading', 0),
-            context.get('faces mode', 0), culled,
-            SUN_CONTEXT_REACH_MM / 1000.0))
-    if ref_mode or ref_unavailable:
-        output.print_md(
-            '{0} dense mesh(es) handed to Revit\'s own ReferenceIntersector '
-            'instead of the Python face grid{1}.'.format(
-                ref_mode,
-                '' if not ref_unavailable else
-                ' ({0} wanted to but fell back to the grid instead - see '
-                'below for why)'.format(ref_unavailable)))
-    if ref_unavailable:
-        # The REAL reason, not a guessed one - see sun._new_ref_intersector.
-        errors = {}
-        for per in shading_stats.values():
-            for msg, count in (per.get('errors') or {}).items():
-                errors[msg] = errors.get(msg, 0) + count
-        for msg, count in sorted(errors.items(), key=lambda kv: -kv[1]):
-            output.print_md('- {0} x `{1}`'.format(count, msg))
-
-    dayloft, darkloft = inputs.study(outer_walls, vectors, obstructions,
-                                     reach, options, progress=bar.tick,
+        dayloft, darkloft = inputs.study(outer_walls, vectors, obstructions,
+                                         reach, options, progress=bar.tick,
+                                         required=required_hours)
+        if cancelled(bar):
+            quit_run()
+        # the rounded walls' own sun (user, 2026-10-20) - curved faces are no wall runs
+        from tadpole import arcs as _arcs
+        _arcs.ARC_SUN.clear()
+        arcs_studied = sun.arc_study(result.of_class(u'section'), vectors, obstructions, reach, options,
                                      required=required_hours)
-    if cancelled(bar):
-        quit_run()
 
-    # Unique floors per section - outer wall length sets, split by the
-    # non-insolated length. Pure arithmetic on what was just collected.
-    unique_floors = unique.unique_floors(outer_walls, darkloft)
+        # Unique floors per section - outer wall length sets, split by the
+        # non-insolated length. Pure arithmetic on what was just collected.
+        unique_floors = unique.unique_floors(outer_walls, darkloft)
 
-    # which sections make one building - the apartment stage works through
-    # a building at a time, lowest unique floor first
-    section_building = buildings.by_section(buildings.cluster(records))
+        # which sections make one building - the apartment stage works through
+        # a building at a time, lowest unique floor first
+        section_building = buildings.by_section(buildings.cluster(records))
+        base_inputs = dict((n, v) for n, v in globals().items()
+                           if n != 'names_before' and (n not in names_before or names_before[n] is not v))
 
     # Stair cores - one stack per section. The sun study has just run, so
     # every outer run carries its mean hours and the darker side is a
@@ -624,19 +774,77 @@ with ui.Progress(PHASES) as bar:
     if cancelled(bar):
         quit_run()
 
+    # THE CORE TO THE OPPOSITE SIDE (user, 2026-10-16): the straight meridional sections whose core may go to the other
+    # long side are found here, on the layout the rules made; the window that offers them opens at the END of the run,
+    # open, once the model can be looked at (user: "треба щоб воно все розклало і зробило, користувач міг покрутити,
+    # і тоді вже приймати рішення"). A run laid again from that window puts the core across in the sections ticked.
+    flip_offers, flip_refused, flip_chosen = [], [], set()
+    try:
+        flip_offers, flip_refused = apartments.flip_candidates(
+            (stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans),
+            outer_walls, inner_walls, records, darkloft, unique_floors, north)
+        offered = set(o['section'] for o in flip_offers)
+        flip_chosen = set(s for s in ((again or {}).get('flips') or ()) if s in offered)
+        if flip_chosen:
+            stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans = apartments.apply_flips(
+                (stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans),
+                flip_offers, flip_chosen)
+        report.core_flips(output, flip_offers, flip_refused, flip_chosen)
+    except Exception as error:
+        output.print_md(u'_The cores were not offered to the opposite side: {0}_'.format(
+            u'{0}'.format(error)[:120]))
+    if cancelled(bar):
+        quit_run()
+
     # THE MIX OF THE WHOLE FILE (user, 2026-10-09 and the rules of 2026-10-12): every flat of every floor, the
     # shares brought to the settings window's within 2 points by point changes - `mix`. The working floors' changes
     # are in the plans placed below; the other floors' are made on their copies (6d).
+    # RULE B (user, 2026-10-16 and 2026-10-19, ORLK section 13): a unique floor where a flat of the first group
+    # loses its facade to a party wall is laid again on its own walls - for the mix's count of the floors and for 6d.
+    # Laid once per floor (`apartments._PARTY_LAID`), with the cores and corridors as they stand now.
+    def _lay_on_own_walls(target):
+        plans_t = apartments.plan(outer_walls, inner_walls, stair_plans, corridor_plans, records, darkloft,
+                                  floors={(target.section, target.level_name): target})
+        cp = next((c for c in corridor_plans
+                   if c.section == target.section and c.level_name == target.level_name), None)
+        return plans_t, (list(cp.points) if cp is not None and cp.points else None)
+    apartments._PARTY_LAID.clear()
+    apartments.PARTY_RELAY = _lay_on_own_walls
+
     bar.phase('mix')
     mix_result = None
     try:
         mix_result = mix.run(stair_plans, corridor_plans, floor_plans, apartment_plans, unique_floors,
-                             progress=bar.tick)
+                             progress=bar.tick, only=only, held=base.get('held') if point else None)
         apartment_plans = mix_result['plans']
     except Exception as error:
         output.print_md(u'_The mix of the file was not fitted: {0}_'.format(u'{0}'.format(error)[:160]))
     if cancelled(bar):
         quit_run()
+
+    # the flats of every section as they stand now - the mix of a later point run counts the others at these
+    held_now = dict(base.get('held') or {}) if point else {}
+    held_now.update((mix_result or {}).get('section_counts') or {})
+
+    # A POINT RUN writes only its sections: their cores, corridors, flats and groups. The roofs of commercial and
+    # parking, the non-insolated walls and every other section are in the model already.
+    # every section of the file, for the window at the end - before a point run keeps only its own
+    all_sections = sorted(set(p.section for p in stair_plans), key=collect.section_sort_key)
+    # ... and each section's largest plate, for the plan of the sections in that window (03)
+    section_plates = {}
+    for (plate_section, _plate_level), plate_floor in floor_plans.items():
+        plate_ring = getattr(plate_floor, 'plate', None)
+        if not plate_ring or len(plate_ring) < 3:
+            continue
+        plate_m2 = apartments.area_m2(plate_ring)
+        if plate_section not in section_plates or plate_m2 > section_plates[plate_section][0]:
+            section_plates[plate_section] = (plate_m2, [(p[0], p[1]) for p in plate_ring])
+    section_plates = dict((k, v[1]) for k, v in section_plates.items())
+    if point:
+        stair_plans = [p for p in stair_plans if p.section in only]
+        corridor_plans = [p for p in corridor_plans if p.section in only]
+        apartment_plans = [p for p in apartment_plans if p.section in only]
+        floor_plans = dict((k, v) for k, v in floor_plans.items() if k[0] in only)
 
     # ------------------------------------------------------------------
     # 6. write — both kinds in one group, so one Ctrl+Z undoes the lot
@@ -644,10 +852,10 @@ with ui.Progress(PHASES) as bar:
     # Not asked about. Placing is what the button is for, and the whole
     # run is a single Ctrl+Z.
     # ------------------------------------------------------------------
-    handle = tx.group(doc, 'Tadpole — input collection')
+    handle = tx.group(doc, 'Tadpole')
     try:
         bar.phase('roofs')
-        placements, roof_aborted = roofs.place(
+        placements, roof_aborted = ([], None) if point else roofs.place(
             doc, result, resolved,
             recipe=probe_info.get('recipe'),
             variant=probe_info.get('variant'),
@@ -661,7 +869,8 @@ with ui.Progress(PHASES) as bar:
                 dark_type, progress=bar.tick)
             walls_placed = test_counts['dark']
             walls_failed = test_failed
-        else:
+        elif not point or fresh:
+            # a run on the model's geometry now places them all again - the old ones were removed with its sections
             bar.phase('darkwall')
             if darkloft:
                 walls_placed, walls_failed, walls_aborted = \
@@ -692,6 +901,14 @@ with ui.Progress(PHASES) as bar:
             corridors_placed, corridors_failed, corridors_aborted = corridors.place(
                 doc, corridor_plans, corridor_type,
                 variant=probe_info.get('variant'), progress=bar.tick)
+
+        # a core or corridor standing on a commercial or parking plate of its level cuts its roof (user, 2026-10-21)
+        try:
+            from tadpole import cutouts
+            cutout_log = cutouts.cut(doc, placements, stair_plans, corridor_plans)
+        except Exception as error:
+            cutout_log = [dict(roof=None, what=u'-', section=u'-', level=u'-', m2=0.0,
+                               why=u'{0}'.format(error)[:160])]
 
         bar.phase('apartments')
         apartment_types = apartments.find_roof_types(doc)
@@ -917,8 +1134,12 @@ with ui.Progress(PHASES) as bar:
                 text = (u'{0} cut to the plate, {1} arm transfer(s), '
                         u'{2} big split(s), {3} dead space(s) '
                         u'changed, {4} gone dark'.format(
-                            len(fit['flats']), len(transfers), len(splits),
+                            len(fit['flats']), len(transfers),
+                            len([s for s in splits if not s.get('gave')]),
                             len(dead_recs), len(blind_recs)))
+                gave = len([s for s in splits if s.get('gave')])
+                if gave:
+                    text += u'; {0} flat(s) gave the corridor band back to give a cut flat its door'.format(gave)
                 if l_change:
                     text = l_change['note']
                 if mix_overlay:
@@ -1044,7 +1265,10 @@ with ui.Progress(PHASES) as bar:
                                     reviews_here = []
                                     transfers = (apartments.arm_transfers(
                                         work_floor, target, free_plans,
-                                        reviews=reviews_here)
+                                        reviews=reviews_here,
+                                        corridor=apartments._fit_ring(
+                                            fit, work_corridor.points
+                                            if work_corridor is not None else None))
                                         if work_floor is not None else [])
                                     for review in reviews_here:
                                         arm_reviews.append(
@@ -1054,9 +1278,15 @@ with ui.Progress(PHASES) as bar:
                                         skip.add(id(rec['body']))
                                         skip.add(id(rec['neighbour']))
                                     reviews_big = []
+                                    # the corridor this floor has, so a cut part
+                                    # keeps its door (user, 2026-10-19, section 6)
                                     splits = apartments.big_flat_splits(
                                         target, free_plans, skip,
-                                        reviews=reviews_big)
+                                        reviews=reviews_big,
+                                        corridor=apartments.transfer_corridor(transfers)
+                                        or apartments._fit_ring(
+                                            fit, work_corridor.points
+                                            if work_corridor is not None else None))
                                     for review in reviews_big:
                                         arm_reviews.append(
                                             (section, target.level_name, review))
@@ -1083,6 +1313,19 @@ with ui.Progress(PHASES) as bar:
                                     for review in reviews_blind:
                                         blind_log.append(
                                             (section, target.level_name, review))
+                                    # RULE B: a facade turned party wall here - the
+                                    # floor laid again on its own walls, not the
+                                    # first group's copy changed bit by bit
+                                    party = apartments.party_wall_changes(
+                                        work_floor, target, plans_here,
+                                        work_corridor.points
+                                        if work_corridor is not None else None)
+                                    if party:
+                                        l_change = party
+                                        fit = dict(flats=[], corridor=False,
+                                                   stair_outside=False)
+                                        transfers, splits = [], []
+                                        dead_recs, blind_recs = [], []
                             except Exception as exc:
                                 next_failed.append(
                                     (section, target.level_name,
@@ -1187,13 +1430,15 @@ with ui.Progress(PHASES) as bar:
                                     doc, transfers, member_ids, level,
                                     apartment_types,
                                     variant=probe_info.get('variant'),
-                                    copy=flats_in_copy)
+                                    copy=flats_in_copy, section=section,
+                                    corridor_type=corridor_type)
                                     if transfers else [])
                                 done_big = (apartments.apply_big_splits(
                                     doc, splits, member_ids, level,
                                     apartment_types,
                                     variant=probe_info.get('variant'),
-                                    copy=flats_in_copy)
+                                    copy=flats_in_copy, section=section,
+                                    corridor_type=corridor_type)
                                     if splits else [])
                                 done_dead = (apartments.apply_dead_changes(
                                     doc, dead_recs, member_ids, level,
@@ -1401,6 +1646,16 @@ for section, level_name, rec, why in mix_done:
 report.corridors(output, corridor_plans, placed=corridors_placed,
                  failed=corridors_failed, aborted=corridors_aborted,
                  roof_type=corridor_type_name)
+
+if cutout_log:
+    output.print_md(u'## Openings under cores and corridors')
+    output.print_md(u'Where a core or a corridor stands on a commercial or parking plate of its level, the roof '
+                    u'placed on it is opened under it.')
+    output.print_table(
+        table_data=[[u'{0}'.format(r['section']), r['level'], r['what'], u'{0:.1f}'.format(r['m2']),
+                     u'{0}'.format(r['roof']) if r['roof'] is not None else u'-',
+                     r['why'] or u'cut'] for r in cutout_log],
+        columns=['section', 'level', 'under', 'm2', 'roof', 'result'])
 
 if groups_made or groups_failed:
     output.print_md('## Floor groups')
@@ -1658,3 +1913,116 @@ report.inputs_manifest(output, inputs.manifest_amounts(
     roofs_placed=len([p for p in placements if p.ok])))
 
 splash.stop()
+
+# A RUN LAID AGAIN from the window: what it did, at the foot of the report it is printed into
+if point:
+    try:
+        report.rerun_summary(output, again, base.get('held') or {}, held_now, (mix_result or {}).get('brief'))
+    except Exception as error:
+        output.print_md(u'_The summary of the sections laid again failed: {0}_'.format(u'{0}'.format(error)[:120]))
+
+# THE RUN IN NUMBERS - for the summary sent to the chat and the first card of the window at the end (user,
+# 2026-10-19: "найперше дамо короткий звіт, скільки вийшло квартир і яке було завдання, і скільки поза діапазоном і
+# в яких секціях найбільше"). The whole file: after a run laid again from the window, the other sections are counted
+# as they stand (their flats `held`, their flats beyond the bands `band`, both carried from run to run).
+run_numbers = None
+try:
+    if point:
+        run_counts = {1: 0, 2: 0, 3: 0}
+        for section_counts in (held_now or {}).values():
+            for k in run_counts:
+                run_counts[k] += (section_counts or {}).get(k, 0)
+        run_dead, run_floors = None, None
+    else:
+        run_counts = dict((whole_mix or {}).get('counts') or {})
+        run_dead, run_floors = (whole_mix or {}).get('dead'), (whole_mix or {}).get('floors')
+    # THE FLATS INSIDE THEIR BANDS over every floor (user, 2026-10-19: "квартири в діапазоні площ", not the working
+    # floors): the working floor's as laid, every other unique floor's as the mix of the file read it (`finals`),
+    # each counted as many times as it has levels - section by section
+    run_levels = {}
+    for run_section, run_ufs in (unique_floors or {}).items():
+        for run_uf in run_ufs:
+            for run_name in run_uf.levels:
+                run_levels[(run_section, run_name)] = len(run_uf.levels)
+    run_band = {}
+    for p in apartment_plans:
+        if p.dead or getattr(p, 'skipped', False) or not p.points:
+            continue
+        run_w = run_levels.get((p.section, p.level_name), 1)
+        here = run_band.setdefault(p.section, [0, 0])
+        here[1] += run_w
+        here[0] += run_w if getattr(p, 'in_band', False) else 0
+    for (run_section, run_name), run_flats in ((mix_result or {}).get('finals') or {}).items():
+        if point and run_section not in only:
+            continue
+        run_w = run_levels.get((run_section, run_name), 1)
+        here = run_band.setdefault(run_section, [0, 0])
+        for run_rooms, run_raw, run_is_dead in run_flats:
+            if run_is_dead or not run_rooms:
+                continue
+            here[1] += run_w
+            here[0] += run_w if apartments.in_band(run_raw, run_rooms) else 0
+    band_now = dict((base.get('band') or {}) if point else {})
+    band_now.update(run_band)
+    run_numbers = dict(counts=run_counts, dead=run_dead, floors=run_floors,
+                       brief=(mix_result or {}).get('brief'), max_1k=bool((mix_result or {}).get('max_1k')),
+                       band=band_now, sections=dict(held_now or {}))
+except Exception as error:
+    band_now = dict((base.get('band') or {}) if point else {})
+    output.print_md(u'_The run was not counted for its summary: {0}_'.format(u'{0}'.format(error)[:160]))
+
+# THE REPORT TO THE CHAT (user, 2026-10-19): the whole report window as text to the team's share, named
+# <computer>_<date>_<time>_<model>.txt, and a summary with its path to the Google Chat space - only on a machine
+# that holds the space's webhook (%APPDATA%\Tadpole\chat_webhook.txt); nothing is sent from any other.
+try:
+    from tadpole import chat
+    if chat.webhook() and run_numbers:
+        chat_ok = sum(v[0] for v in run_numbers['band'].values())
+        chat_all = sum(v[1] for v in run_numbers['band'].values())
+        chat_console = base.get('console') if point else getattr(output, 'window', None)
+        chat_txt, chat_txt_why = chat.save_report(chat_console, doc.Title, doc.PathName)
+        chat_text = chat.summary(doc.Title, run_started, run_numbers['counts'], dead=run_numbers['dead'],
+                                 floors=run_numbers['floors'], brief=run_numbers['brief'],
+                                 max_1k=run_numbers['max_1k'], in_band=(chat_ok, chat_all),
+                                 rerun=again if point else None, txt=chat_txt, txt_why=chat_txt_why)
+        chat_sent, chat_why = chat.send(chat_text)
+        output.print_md(u'_Sent to Google Chat{0}._'.format(u'; the report: {0}'.format(chat_txt) if chat_txt else u'')
+                        if chat_sent else u'_Not sent to Google Chat: {0}_'.format(chat_why))
+except Exception as error:
+    output.print_md(u'_Not sent to Google Chat: {0}_'.format(u'{0}'.format(error)[:160]))
+
+# THE WINDOW AT THE END, OPEN: the sections whose core may go across, ticked where it is across now. Revit stays free
+# while it stands; its button removes only the sections whose tick changed and lays them again (`rerun`).
+if flip_offers or all_sections:
+    try:
+        from tadpole import flip_ui
+        path = rerun.script_path_of(globals())
+        if path is None:
+            try:
+                from pyrevit import EXEC_PARAMS
+                import os as _os
+                path = _os.path.join(EXEC_PARAMS.command_path, 'script.py')
+            except Exception:
+                path = None
+        event = rerun.arm(path, globals(), doc) if path else None
+        if event is None:
+            output.print_md(u'_The window for the cores was not opened: {0}_'.format(
+                rerun.last_error or u'the script was not found'))
+        else:
+            # the report window this run printed into: a run laid again from the window prints into it too
+            console = base.get('console') if point else getattr(output, 'window', None)
+            # the button that shows the flats beyond their bands in 3D - its own ExternalEvent
+            show3d_request = None
+            try:
+                from tadpole import show3d
+                show3d_event = show3d.arm(on_done=flip_ui.status_sink)
+                show3d_request = show3d.requester(show3d_event) if show3d_event is not None else None
+            except Exception:
+                show3d_request = None
+            base_next = dict(start_id=run_start_id, inputs=base['inputs'] if point and not fresh else base_inputs,
+                             held=held_now, band=band_now, console=console)
+            flip_ui.show_open(flip_offers, flip_chosen,
+                              rerun.applier(event, setting_values, latitude, output, base_next, flip_chosen),
+                              all_sections, section_plates, run_numbers, show3d_request)
+    except Exception as error:
+        output.print_md(u'_The window for the cores was not opened: {0}_'.format(u'{0}'.format(error)[:120]))

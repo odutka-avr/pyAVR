@@ -1773,6 +1773,8 @@ def plan_l(floor, plate, ring, core, base=None, hall=None):
         # (user, 2026-10-12, section 55, 1k 4582775)
         _necks(done)
     done = _corner_tongues(floor, plate, core, done)
+    # A GENTLE BEND: the strip under a module between the core and the break goes to the flat beside it (sec 54)
+    done = _break_strip(floor, plate, core, done)
     if done is not None:
         # TWO ROOMS OF A FLAT ARE JOINED BY 1.8 x 1.8 m AT LEAST (user, 2026-10-13, section 24)
         done['rows'], done['corridor'] = join_necks(floor, plate, core, done['rows'], done['corridor'],
@@ -1783,6 +1785,11 @@ def plan_l(floor, plate, ring, core, base=None, hall=None):
         # the flat along its longer side (2026-10-15, sections 16 and 29)
         done['rows'], done['corridor'] = give_fingers(floor, core, done['rows'], done['corridor'],
                                                       corridor_was=ring)
+        if flush is None:
+            # THE HALL OF A CORE AT THE BEND IS CORRIDOR ONLY TOO (user, 2026-10-21, section 72), last of all - as
+            # the floors after this one do it, so that a floor with the same sun comes out the same
+            done['rows'], done['corridor'] = restore_hall(floor, plate, core, done['rows'], done['corridor'],
+                                                          (hall or {}).get('lobby_ft') or 3000.0 / FT_MM)
     return _leg_bodies(done)
 
 
@@ -2135,7 +2142,16 @@ NUB_WRAP = 0.5                       # ... when the flat has this share of its o
 
 
 def _square_piece(pc, ring, tol=0.02):
-    """Does every side of the convex piece pc run parallel or square to some edge of the ring?"""
+    """Does every side of the convex piece pc run parallel or square to some edge of the ring?
+
+    A TRIANGLE NEVER DOES (user, 2026-10-20, Str200 V1 section 5-5: "зажувало коридор"). On a gentle bend of 10
+    degrees the decomposition cut the band from the inner corner of the bend down to its outer side; the slanted
+    side, 7.5 degrees off the other wing, passed the loose parallel test (kept loose on purpose: section 24 А_01's
+    real nub is a four-cornered piece with a 7.8 degree cut of its own) and a 5.1 m2 triangle of the band went to
+    the flat as a "nub" - the band was left a wedge. A nub is a bite out of the corridor, four-cornered at least."""
+    if len(lpoly.tidy(list(pc))) < 4:
+        return False
+    par = 1 - tol
     dirs = []
     for k in range(len(ring)):
         a, b = ring[k], ring[(k + 1) % len(ring)]
@@ -2146,7 +2162,7 @@ def _square_piece(pc, ring, tol=0.02):
         if _len(_sub(b, a)) < 0.05:
             continue
         e = _unit(_sub(b, a))
-        if not any(abs(_dot(e, d)) > 1 - tol or abs(_dot(e, d)) < tol for d in dirs):
+        if not any(abs(_dot(e, d)) > par or abs(_dot(e, d)) < tol for d in dirs):
             return False
     return True
 
@@ -2352,6 +2368,8 @@ def give_fingers(floor, core, rows, corridor, notes=None, corridor_was=None):
     def ring_of(pieces):
         return _unpinch(lpoly.tidy(lpoly.snap(lpoly.outline(pieces), RING_FLOOR_FT), 1e-3))
 
+    centre = lambda pts: (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+    given = []          # the pieces moved already: one is never handed back (section 51: 1k -> 2k -> 1k)
     for _ in range(8):
         done_one = False
         for i, r in enumerate(rows):
@@ -2361,9 +2379,14 @@ def give_fingers(floor, core, rows, corridor, notes=None, corridor_was=None):
                 pc = pc_parts[0] if len(pc_parts) == 1 else None
                 if pc is None:
                     continue
+                if any(_len(_sub(centre(pc), g)) < 1.0 for g in given):
+                    continue
                 ring_i = ring_of(rest)
                 if ring_i is None or len(ring_i) < 3:
                     continue
+                if abs(lpoly.area(lpoly.ccw(list(r[0]))) - lpoly.area(pc) - lpoly.area(lpoly.ccw(list(ring_i)))) \
+                        * 0.09290304 > 0.3:
+                    continue                # the flat would keep less (or more) than its ground less the piece
                 got_i = read_flat(floor, ring_i)
                 if got_i['dead'] or not sunny(got_i):
                     continue
@@ -2381,14 +2404,24 @@ def give_fingers(floor, core, rows, corridor, notes=None, corridor_was=None):
                 for j, o in enumerate(rows):
                     if j == i or o[5] or not o[0] or len(o[0]) < 3:
                         continue
+                    if u'past the inner corner' in (r[3] or u'') and u'past the inner corner' in (o[3] or u''):
+                        continue            # the corner's line between these two is settled (`_corner_tongues`,
+                                            # section 29): nothing goes back across it
                     side = shared(pc, o[0])
                     if side < 1.0:
                         continue
-                    ring_j = ring_of(lpoly.decompose(lpoly.ccw(list(o[0]))) + [pc])
+                    # THE PIECE IS LAID ON THE RECEIVER'S WALL before the two are joined (user, 2026-10-16, ORLK V1.2
+                    # section 51, "чому утворилась дірка"): their common wall was drawn 7.5 mm askew, the outline met
+                    # at a corner only and kept the receiver alone - the 12.1 m2 left the 1k and reached nobody
+                    pc_j = _snap_onto(pc, lpoly.ccw(list(o[0])), SNAP_ONTO_FT)
+                    ring_j = ring_of(lpoly.decompose(lpoly.ccw(list(o[0]))) + [pc_j])
                     if ring_j is None or len(ring_j) < 3:
                         continue
                     if len(lpoly.components(lpoly.decompose(lpoly.ccw(list(ring_j))))) != 1:
                         continue
+                    if abs(lpoly.area(lpoly.ccw(list(ring_j))) - lpoly.area(lpoly.ccw(list(o[0])))
+                           - lpoly.area(pc)) * 0.09290304 > 0.3:
+                        continue            # the receiver did not take the whole piece: no ground is lost for it
                     got_j = read_flat(floor, ring_j)
                     if got_j['dead'] or not sunny(got_j):
                         continue
@@ -2421,6 +2454,7 @@ def give_fingers(floor, core, rows, corridor, notes=None, corridor_was=None):
                                 u'{0}; a {1} of {2:.1f} m2, {3:.2f} m wide, given to {4}'.format(
                                     r[3], kind, m2, width * FT_TO_M, where), got_i['sunny'], False)
                     rows, corridor = trial, cor_after
+                    given.append(centre(pc))
                     if notes is not None:
                         notes.append(u'a {0} of {1:.1f} m2 of a {2}k given to {3}'.format(kind, m2, got_i['rooms'],
                                                                                            where))
@@ -2825,10 +2859,144 @@ def _take_corridor_end(floor, done, core):
     return done
 
 
+def _give_gable_band(floor, done, core):
+    """THE BAND AT THE GABLE GOES TO A FLAT BESIDE IT, AS ON A STRAIGHT SECTION (user, 2026-10-15, ORLK V1.2 section
+    52, an L of a gentle bend: "чому її торці не закриваються додаванням як у квартири в звичайних прямокутних
+    секціях"; the rule: "смуга коридору біля торця віддається торцевій квартирі так само, як у прямих секціях:
+    стільки, скільки квартира може взяти, лишаючись у своєму діапазоні. При цьому коридор не відступає далі за двері
+    сусідніх квартир і сходової; якщо по обидва боки коридору стоять квартири, бере та, якій бракує площі до верхньої
+    межі" - for the L-shaped sections of such a gentle bend).
+
+    For every end of the corridor that stands on the facade: of the flats beside the band at that end, the one furthest
+    under the top of its band takes the band from the gable in - as far as the band runs straight, and no further than
+    it can and stay in its band, every flat keeps its door and the core its door. The other flat is tried where the
+    first can take none of it."""
+    if done is None or done.get('corridor') is None:
+        return done
+    from tadpole import apartments as A
+    plate = lpoly.ccw(list(floor.plate))
+    door_ft = APARTMENT_CORRIDOR_DOOR_MM / FT_MM
+    for _ in range(4):
+        cor = lpoly.ccw(list(done['corridor']))
+        rows = done['rows']
+        served = set(i for i in range(len(rows)) if i not in _unserved(done))
+        made = None
+        for k in range(len(cor)):
+            a, b = cor[k], cor[(k + 1) % len(cor)]
+            width = _len(_sub(b, a))
+            if not END_EDGE_FT[0] <= width <= END_EDGE_FT[1]:
+                continue
+            side = _unit(_sub(b, a))
+            out = (side[1], -side[0])
+            mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+            if lpoly.contains(plate, _add_mul(mid, out, 0.25)):
+                continue                                    # not at the facade: a flat stands across this end
+            whole = lpoly.decompose(cor)
+            pieces = lpoly.subtract_all(whole, lpoly.decompose(lpoly.ccw(list(core)))) if core else whole
+            reach = 0.0
+            step = 0.1
+            while reach < 40.0:
+                chord = _chord(pieces, _add_mul(mid, out, -(reach + step)), side)
+                if chord is None or chord[1] - chord[0] > width + 0.25:
+                    break
+                reach += step
+            if reach < 1.0:
+                continue
+            rect = lpoly.ccw([_add_mul(a, side, -0.3), _add_mul(b, side, 0.3),
+                              _add_mul(_add_mul(b, side, 0.3), out, -reach),
+                              _add_mul(_add_mul(a, side, -0.3), out, -reach)])
+            band_pieces = [ip for ip in (lpoly.intersect_convex(pc, rect) for pc in pieces) if ip]
+            first = lpoly.clip(band_pieces, _add_mul(mid, out, -1.0), out)
+            # the flats beside the band at its end, the one furthest under the top of its band first
+            beside = []
+            for i, r in enumerate(rows):
+                if r[5] or not r[0] or len(r[0]) < 3:
+                    continue
+                if sum(_overlap_len(pc, r[0]) for pc in first) < 0.5:
+                    continue
+                was = read_flat(floor, r[0])
+                if was['dead'] or not was['rooms'] or was['rooms'] not in A.APARTMENT_BANDS:
+                    continue
+                room = A.APARTMENT_BANDS[was['rooms']][1] - was['area']
+                if room <= 0.05:
+                    continue
+                beside.append((-room, i, was))
+            for _room, i, was in sorted(beside, key=lambda t: t[0]):
+                ring = rows[i][0]
+                own = lpoly.decompose(lpoly.ccw(list(ring)))
+                old_miss = A.miss(was['raw'], was['rooms'])
+                t = reach
+                while t >= 1.0:
+                    strip = lpoly.clip(band_pieces, _add_mul(mid, out, -t), out)
+                    left = lpoly.subtract_all(whole, strip)
+                    if strip and left and len(lpoly.components(left)) == 1 and \
+                            len(lpoly.components(own + strip)) == 1:
+                        ring_f = lpoly.snap(lpoly.outline(own + strip), RING_FLOOR_FT)
+                        cor_after = lpoly.snap(lpoly.outline(left), RING_FLOOR_FT)
+                        got = read_flat(floor, ring_f)
+                        fits = (len(ring_f) >= 3 and len(cor_after) >= 3 and not got['dead'] and sunny(got)
+                                and got['rooms'] in A.APARTMENT_BANDS
+                                and got['area'] <= A.APARTMENT_BANDS[got['rooms']][1] + 1e-6
+                                and A.miss(got['raw'], got['rooms']) <= old_miss + 1e-6)
+                        lost = bool(core) and (frontage(list(core), cor) >= door_ft - 1e-6
+                                               and frontage(list(core), cor_after) < door_ft - 1e-6)
+                        if fits and not lost:
+                            trial = dict(done)
+                            trial['rows'] = list(rows)
+                            trial['rows'][i] = (ring_f, got['rooms'], got['raw'],
+                                                u'{0}; +{1:.0f} mm of the corridor band at the gable'.format(
+                                                    rows[i][3], t * FT_MM), got['sunny'], False)
+                            trial['corridor'] = cor_after
+                            if served <= set(x for x in range(len(trial['rows'])) if x not in _unserved(trial)):
+                                trial['retreated'] = list(done.get('retreated') or []) + [(u'G', t * FT_MM)]
+                                made = trial
+                                break
+                    t -= 0.3
+                if made is not None:
+                    break
+            if made is not None:
+                break
+        if made is None:
+            break
+        done = made
+    return done
+
+
+SNAP_ONTO_FT = 0.15         # a corner this near a wall of the flat it joins is laid on that wall (45 mm)
+
+
+def _snap_onto(pc, ring, tol):
+    """`pc` with every corner that lies within `tol` of an edge of `ring` moved onto that edge."""
+    out = []
+    for p in pc:
+        best = None
+        for y in range(len(ring)):
+            a, b = ring[y], ring[(y + 1) % len(ring)]
+            ab = _sub(b, a)
+            ll = _dot(ab, ab)
+            if ll < 1e-12:
+                continue
+            s = max(0.0, min(1.0, _dot(_sub(p, a), ab) / ll))
+            c = _add_mul(a, ab, s)
+            d = _len(_sub(p, c))
+            if d <= tol and (best is None or d < best[0]):
+                best = (d, c)
+        out.append(best[1] if best is not None else p)
+    return lpoly.ccw(out)
+
+
+def _overlap_len(pc, ring, tol=0.12):
+    """Feet of the edges of `pc` that lie on the edges of `ring`."""
+    m = len(ring)
+    return sum(lpoly._edge_overlap(pc[k], pc[(k + 1) % len(pc)], ring[y], ring[(y + 1) % m], tol)
+               for k in range(len(pc)) for y in range(m))
+
+
 def _take_corridor_ends(floor, done, core):
-    """`_take_corridor_end` for every end of the corridor there is."""
+    """`_take_corridor_end` for every end of the corridor there is; on a gentle bend `_give_gable_band`."""
     if lplate.is_obtuse(lplate.analyze(floor.plate)):
-        return done                     # a gentle bend: the corridor keeps both its ends
+        # a gentle bend: no end is taken across the corridor, but the band at the gable goes to a flat beside it
+        return _give_gable_band(floor, done, core)
     for _ in range(4):
         got = _take_corridor_end(floor, done, core)
         if got is done:
@@ -3283,6 +3451,70 @@ def _split_at_corridor_end(floor, done):
 LEFTOVER_RULE = u'L-shaped plate: ground left over - dead space'
 LEFTOVER_MAX_M2 = 20.0        # ground left over that is no flat: a notch, not a room
 LEFTOVER_SHARE = 0.45         # a flat that has this much of its outline on a flat's wall takes it
+
+
+BREAK_STRIP_RULE = u'ground under a module at the break taken in'
+
+
+def _break_strip(floor, plate, core, done):
+    """A GENTLE BEND: THE STRIP BETWEEN THE CORE AND THE BREAK GOES TO THE FLAT BESIDE IT (user, 2026-10-16, ORLK V1.2
+    section 54, dead space 4506776, rule A: "давай спробуємо А" - the core on a half of the outer facade that would
+    leave under a module to the gable goes to the gable, and the strip that is then left at the break "стане частиною"
+    the flat beside it). A dead space against the core whose facade is under a module (no window can stand in it) or whose
+    ground is too small for a 1k (section 54's wedge: 21.0 m2, 3.20 m of facade) joins the live flat with the longest wall in common - across the break too, the only ground that may: the
+    joined flat stays one piece, keeps its lit window and its door, and no ground is lost."""
+    if done is None or not core:
+        return done
+    shape = lplate.analyze(plate)
+    if shape is None or not lplate.is_obtuse(shape):
+        return done
+    from tadpole import apartments as A
+    module = A.APARTMENT_MODULE_MM / FT_MM if hasattr(A, 'APARTMENT_MODULE_MM') else 3100.0 / FT_MM
+    need = EXIT_MM / FT_MM - 0.05
+    core_ring = lpoly.ccw(list(core))
+    pl = lpoly.ccw(list(plate))
+    rows = list(done['rows'])
+    gone = []
+    for i, r in enumerate(rows):
+        if not r[5] or not r[0] or len(r[0]) < 3:
+            continue
+        ring = lpoly.ccw(list(r[0]))
+        if _overlap_len(ring, core_ring) < 1.0:
+            continue                                    # not against the core
+        small = A.APARTMENT_BANDS[1][0] / A.APARTMENT_COEFF[1]
+        if frontage(ring, pl) >= module - 0.05 and r[2] >= small:
+            continue                                    # a module of facade and a 1k's ground: a flat may stand there
+                                                        # (section 54's wedge of 21.0 m2 had 3.20 m: no 1k either)
+        best = None
+        for j, o in enumerate(rows):
+            if j == i or j in gone or o[5] or not o[0] or len(o[0]) < 3:
+                continue
+            side = _overlap_len(ring, lpoly.ccw(list(o[0])))
+            if side < 1.0 / FT_TO_M:
+                continue
+            union = lpoly.tidy(lpoly.snap(lpoly.outline(lpoly.decompose(lpoly.ccw(list(o[0]))) +
+                                                         lpoly.decompose(ring)), RING_FLOOR_FT), 1e-3)
+            if len(union) < 3 or abs(lpoly.area(lpoly.ccw(union)) - lpoly.area(lpoly.ccw(list(o[0])))
+                                     - lpoly.area(ring)) * 0.09290304 > 0.3:
+                continue
+            if len(lpoly.components(lpoly.decompose(lpoly.ccw(union)))) != 1:
+                continue
+            got = read_flat(floor, union)
+            if got['dead'] or not sunny(got) or frontage(union, done['corridor']) < need:
+                continue
+            if best is None or side > best[0]:
+                best = (side, j, union, got)
+        if best is None:
+            continue
+        _side, j, union, got = best
+        rows[j] = (union, got['rooms'], got['raw'],
+                   u'{0}; {1} ({2:.1f} m2)'.format(rows[j][3], BREAK_STRIP_RULE, r[2]), got['sunny'], False)
+        gone.append(i)
+    if gone:
+        done['rows'] = [r for k, r in enumerate(rows) if k not in gone]
+        done['necks'] = [(i - sum(1 for g in gone if g < i), k, m) for i, k, m in done.get('necks', [])
+                         if i not in gone]
+    return done
 
 
 def _absorb_leftovers(done):
@@ -4435,8 +4667,32 @@ def hall_rect(plate, core, depth_ft):
     shape = lplate.analyze(plate)
     flush = lplate.flush_core(shape, list(core)) if shape else None
     if flush is None:
-        return None
+        return _bend_hall(shape, list(core), depth_ft) if shape else None
     return _hall_zone(flush, depth_ft, slack=0.0)
+
+
+def _bend_hall(shape, core, depth_ft, tol=0.5):
+    """THE HALL OF A CORE AT THE BEND (user, 2026-10-21, ORLK R24-2 section 72: 4783591 and 4786398 "забагато стягнули
+    додатково з коридору?" - the ground before the core's door wall went to the flat along the party wall, on Поверх
+    08 all of it): the door wall is the core's end beyond the corner, across the band of the other wing
+    (`lplate.bend_lobby`); the hall is that wall's width, `depth_ft` deep from it. None for a core not at the bend."""
+    got = lplate.bend_lobby(shape, core, 0.0, 0.0)
+    if got is None:
+        return None
+    corner = shape['corner']
+    opposite = shape['opposite'][got['o']]
+    dx, dy = opposite[1][0] - opposite[0][0], opposite[1][1] - opposite[0][1]
+    length = math.hypot(dx, dy) or 1.0
+    n = (-dy / length, dx / length)
+    if n[0] * (corner[0] - opposite[0][0]) + n[1] * (corner[1] - opposite[0][1]) < 0:
+        n = (-n[0], -n[1])
+    reach = [(corner[0] - p[0]) * n[0] + (corner[1] - p[1]) * n[1] for p in core]
+    wall = [p for p, r in zip(core, reach) if abs(r - got['d_end']) <= tol]
+    if len(wall) != 2:
+        return None
+    pa, pb = wall
+    out = (-n[0] * depth_ft, -n[1] * depth_ft)
+    return lpoly.ccw([pa, pb, (pb[0] + out[0], pb[1] + out[1]), (pa[0] + out[0], pa[1] + out[1])])
 
 
 def restore_hall(floor, plate, core, rows, corridor, depth_ft, notes=None):

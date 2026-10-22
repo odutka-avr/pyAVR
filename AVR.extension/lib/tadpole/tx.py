@@ -23,22 +23,81 @@ from Autodesk.Revit.DB import (
 )
 
 
+def _join_failure_ids():
+    """The definition ids of Revit's join failures ("Can't keep elements joined" and its kin: every
+    BuiltInFailures.JoinElementsFailures member named CannotKeep*, CannotJoin* or Joining*), as Guid strings."""
+    ids = set()
+    try:
+        from Autodesk.Revit.DB import BuiltInFailures
+        joins = BuiltInFailures.JoinElementsFailures
+        for name in dir(joins):
+            if not (name.startswith('CannotKeep') or name.startswith('CannotJoin') or name.startswith('Joining')):
+                continue
+            fid = getattr(joins, name, None)
+            if fid is not None and hasattr(fid, 'Guid'):
+                ids.add(u'{0}'.format(fid.Guid))
+    except Exception:
+        pass
+    return ids
+
+
 def swallow_warnings(transaction):
     """Suppress warning dialogs for the life of one Transaction.
+
+    AND UNJOIN WHAT CANNOT STAY JOINED (user, 2026-10-16: "ще в процесі з'являється таке повідомлення [Can't keep
+    elements joined] і я маю щоразу натискати unjoin elements, треба щоб без нього було"): an ERROR of Revit's join
+    family - or any error that offers "Unjoin Elements" - is resolved with Unjoin Elements, the button she pressed
+    every time, and the transaction goes on. Any other error is left to Revit as before: a resolution that deletes
+    elements is never picked here.
 
     Degrades quietly if the interface cannot be implemented on this
     engine — losing the suppression is annoying, not dangerous.
     """
     try:
         from Autodesk.Revit.DB import (
-            IFailuresPreprocessor, FailureProcessingResult, FailureSeverity,
+            IFailuresPreprocessor, FailureProcessingResult, FailureSeverity, FailureResolutionType,
         )
+        # "Unjoin Elements" is DetachElements in Revit's enum (2024 has no UnjoinElements), and the default resolution
+        # of "Can't keep elements joined"
+        detach = getattr(FailureResolutionType, 'DetachElements', None)
+        join_ids = _join_failure_ids()
+
+        def caption(failure):
+            try:
+                return u'{0}'.format(failure.GetDefaultResolutionCaption() or u'')
+            except Exception:
+                return u''
+
+        def is_join(failure):
+            try:
+                if u'{0}'.format(failure.GetFailureDefinitionId().Guid) in join_ids:
+                    return True
+            except Exception:
+                pass
+            return caption(failure).lower().startswith(u'unjoin')
 
         class _Swallow(IFailuresPreprocessor):
             def PreprocessFailures(self, accessor):
+                resolved = False
                 for failure in accessor.GetFailureMessages():
-                    if failure.GetSeverity() == FailureSeverity.Warning:
+                    severity = failure.GetSeverity()
+                    if severity == FailureSeverity.Warning:
                         accessor.DeleteWarning(failure)
+                        continue
+                    if severity == FailureSeverity.Error and is_join(failure):
+                        try:
+                            if not caption(failure).lower().startswith(u'unjoin'):
+                                # the default is something else: Unjoin (detach) where it is offered, else leave it
+                                if detach is None or not failure.HasResolutionOfType(detach):
+                                    continue
+                                failure.SetCurrentResolutionType(detach)
+                            if failure.HasResolutions():
+                                accessor.ResolveFailure(failure)
+                                resolved = True
+                        except Exception:
+                            pass
+                if resolved:
+                    return FailureProcessingResult.ProceedWithCommit
                 return FailureProcessingResult.Continue
 
         options = transaction.GetFailureHandlingOptions()

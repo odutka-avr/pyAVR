@@ -1,7 +1,5 @@
-title: Tadpole (input collection)
-tooltip: >
-  Everything the apartment cutter needs, in one run. Places the
-  commercial and parking roofs and a non-insolated wall over every
-  under-lit stretch; collects the rest as variables and reports all of
-  them, including the ones nothing produces yet.
-  MODIFIES THE MODEL. One Ctrl+Z reverses the whole run.
+title: Tadpole
+tooltip: Автоматичний поділ секцій на квартири згідно з квартирографією завдання
+author: Roksolana Kordyiaka
+engine:
+  persistent: true
