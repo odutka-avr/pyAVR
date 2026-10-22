@@ -1,5 +1,5 @@
 title: Tadpole
-tooltip: Автоматичний поділ секцій на квартири згідно з квартирографією завдання
+tooltip: Tadpole, розкладка на сервері (кухня) - збирає модель і рахує сонце тут, сходи, коридори й квартири розкладає сервер
 author: Roksolana Kordyiaka
 engine:
   persistent: true

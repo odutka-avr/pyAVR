@@ -1,5 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Tadpole — input collection.
+"""Tadpole-split — the Tadpole button with the layout on a server (the kitchen).
+
+The same run as the Tadpole button, one difference: the stair cores, corridors, flats, the mix and the changes of
+the other unique floors are decided on the server (kitchen/, built from lib/tadpole by tools/build_split.py), not
+here. This button collects, studies the sun, sends the order (`tadpole.order`) through the waiter
+(`tadpole.waiter`; where the kitchen is: %APPDATA%/Tadpole/kitchen.txt), and places what comes back
+(`tadpole.placing`). After O. Tarnavskyi's backend split (2026-10-20), on the Tadpole button of 2026-10-21.
+
+What follows is the Tadpole button's own description.
+
+Tadpole — input collection.
 
 Assembles, in one run, every input the apartment cutter needs, and says
 plainly where each one came from.
@@ -34,7 +44,7 @@ MODIFIES THE MODEL. Both writes sit in one TransactionGroup, so a single
 Ctrl+Z reverses the whole run.
 """
 
-__title__ = 'Tadpole'
+__title__ = 'Tadpole-split'
 __author__ = 'Roksolana Kordyiaka'
 # THE ENGINE STAYS: the window that offers the core on the other side stays open after the run, and its button lays
 # the model again through an ExternalEvent (`tadpole.rerun`) - both need this engine alive after the script ends.
@@ -73,17 +83,19 @@ _fresh_modules()
 from pyrevit import script, revit, forms
 
 from tadpole import (
-    collect, report, roofs, build, sun, tx, ui, inputs, settings_ui, unique,
-    stairs, corridors, buildings, splash, apartments, groups, mix, rerun,
+    collect, report, roofs, build, sun, tx, ui, inputs, settings_ui,
+    splash, groups, rerun, placing, waiter, wire, config,
 )
+from tadpole import order as orders
 from tadpole.config import (
-    SUN_DARK_WALL_TYPE, SUN_LATITUDE_FALLBACK,
+    SUN_DARK_WALL_TYPE, SUN_LATITUDE_FALLBACK, BUILDING_CLASSES,
     INPUT_ROOF_CLASSES, INPUT_SUN_CLASSES, SUN_CONTEXT_REACH_MM,
     STAIR_ROOF_TYPES, CORRIDOR_ROOF_TYPES, APARTMENT_ROOF_TYPES,
 )
 
 
 doc = revit.doc
+import os as _os
 import time as _time
 run_started = _time.time()          # the run's time, for the summary sent to the chat (`tadpole.chat`)
 # SECTIONS LAID AGAIN from the window at the end of the last run (`tadpole.rerun`): its settings, its sections with
@@ -391,9 +403,8 @@ run_start_id = base['start_id'] if point else rerun.max_id(doc)
 # THE BANDS COME FROM THAT WINDOW, not from config.py. They decide how
 # many rooms a flat is called and which split wins, so measuring against
 # one set of numbers while the person typed another is not a reporting
-# quirk - it is a different layout.
-apartments.adopt_bands(setting_values)
-apartments.adopt_mix(setting_values)
+# quirk - it is a different layout. The kitchen takes them with the order,
+# and the dish brings back what it took, for the report (below).
 
 # The card goes up HERE - the moment the last dialog is answered and the
 # run actually starts working. Before that there is nothing to wait for:
@@ -670,157 +681,79 @@ with ui.Progress(PHASES) as bar:
         arcs_studied = sun.arc_study(result.of_class(u'section'), vectors, obstructions, reach, options,
                                      required=required_hours)
 
-        # Unique floors per section - outer wall length sets, split by the
-        # non-insolated length. Pure arithmetic on what was just collected.
-        unique_floors = unique.unique_floors(outer_walls, darkloft)
-
-        # which sections make one building - the apartment stage works through
-        # a building at a time, lowest unique floor first
-        section_building = buildings.by_section(buildings.cluster(records))
         base_inputs = dict((n, v) for n, v in globals().items()
                            if n != 'names_before' and (n not in names_before or names_before[n] is not v))
 
-    # Stair cores - one stack per section. The sun study has just run, so
-    # every outer run carries its mean hours and the darker side is a
-    # measured answer rather than a guess.
-    def lay(bend, progress=None):
-        """stairs, corridors and flats, start to end; `bend` - the sections
-        whose core goes to the bend although a long face is dark."""
-        stairs_ = stairs.plan(outer_walls, inner_walls,
-                              heights=stairs.section_heights(result),
-                              plates=corridors.plate_map(records),
-                              bend_sections=bend)
+    # CORES, CORRIDORS, FLATS AND THE MIX - the kitchen, on the server (`tadpole.waiter`): decided from the runs, the
+    # records and the dark stretches alone (`tadpole.order`); the model is read before it and written after it.
+    # The records a section's height is measured on go with them - the sections and the blocks under them.
+    height_records = [r for r in result.records
+                      if getattr(r, 'section', None) or getattr(r, 'use_class', None) in BUILDING_CLASSES]
+    bar.phase('slides', u'the kitchen lays the file out')
+    kitchen = None
+    try:
+        packed, order_tokens = orders.pack(outer_walls, inner_walls, records, darkloft, height_records=height_records,
+                                           north=north, flips=(again or {}).get('flips'), only=only,
+                                           held=base.get('held') if point else None, values=setting_values)
+        # THE ORDER AND THE DISH WRITTEN DOWN where %APPDATA%\Tadpole\capture exists - a run that went wrong is
+        # laid again by `tools/kitchen.py`, off Revit
+        capture = None
+        try:
+            capture = orders.capture_folder(doc.Title)
+            if capture:
+                orders.save(_os.path.join(capture, u'order.json'), packed)
+        except Exception as error:
+            output.print_md(u'_Capture failed, the run goes on: {0}_'.format(u'{0}'.format(error)[:200]))
+            capture = None
+        kitchen = waiter.Kitchen()
+        raw_dish = kitchen.lay(packed)
+        if capture:
+            try:
+                orders.save(_os.path.join(capture, u'dish.json'), raw_dish)
+                output.print_md(u'_Capture: the order and the dish are in `{0}`._'.format(capture))
+            except Exception as error:
+                output.print_md(u'_Capture of the dish failed: {0}_'.format(u'{0}'.format(error)[:200]))
+    except waiter.KitchenError as error:
+        output.print_md(u'## The kitchen did not lay the file out')
+        output.print_md(u'```\n{0}\n```'.format(error))
+        forms.alert(u'The layout server did not answer, so nothing was placed.\n\n{0}'.format(
+            u'{0}'.format(error)[:400]), title='Tadpole', warn_icon=True)
+        quit_run()
+    # the kitchen's level ids back as the button's own ElementIds
+    level_ids = {}
+    for _name, order_object in order_tokens.by_id.values():
+        if getattr(order_object, 'level_id', None) is not None:
+            level_ids[orders.element_id(order_object.level_id)] = order_object.level_id
 
-        # Corridors run off those stairs: the central band of each floor,
-        # joined to its core, capped at 12 m a wing and never past the plate.
-        corridors_ = corridors.plan(outer_walls, inner_walls, stairs_, records)
-
-        # Flats. The apartment rules may slide a core along its side to keep
-        # an L-shaped flat inside its band, so they get a first look at the
-        # floors, move what they are allowed to move, and the corridors are
-        # then planned again around where the cores now stand. Nothing has
-        # been placed yet, so a "move" is a change of plan and costs nothing.
-        floors_ = apartments.floors_of(outer_walls, inner_walls, stairs_,
-                                       corridors_, records, darkloft)
-        moves_ = apartments.stair_shifts(floors_, inner_walls, stairs_)
-        if [m for m in moves_ if m[1]]:
-            corridors_ = corridors.plan(outer_walls, inner_walls, stairs_,
-                                        records)
-            floors_ = apartments.floors_of(outer_walls, inner_walls, stairs_,
-                                           corridors_, records, darkloft)
-        plans_ = apartments.plan(outer_walls, inner_walls, stairs_,
-                                 corridors_, records, darkloft,
-                                 floors=floors_, progress=progress)
-        return stairs_, corridors_, floors_, moves_, plans_
-
-    # every section starts on the project's module; a run never inherits the
-    # modules the last one chose
-    apartments.SECTION_MODULE.clear()
-    stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans = \
-        lay(None, progress=bar.tick)
-
-    # THE BIGGER MODULE WHERE THE FLATS MISS THEIR BANDS (user, 2026-10-14):
-    # a straight section whose working floor has a flat beyond its band is
-    # laid again with a bigger module, up to 4000 mm, and keeps the best.
-    # OFF (user, 2026-10-14: "зміни вийшли погані, і по відсотку і по модулю"):
-    # the whole section on one bigger module traded two small 1k for one
-    # flat far beyond its band. `apartments.choose_modules` is kept for the
-    # rule that replaces it.
+    def _element_id(n):
+        if n in level_ids:
+            return level_ids[n]
+        from Autodesk.Revit.DB import ElementId
+        return ElementId(n)
+    decoder = wire.Decoder(order_tokens, element_id=_element_id)
+    laid = decoder.decode(raw_dish)
+    unique_floors, section_building = laid['unique_floors'], laid['section_building']
+    stair_plans, corridor_plans = laid['stair_plans'], laid['corridor_plans']
+    stair_moves, apartment_plans = laid['stair_moves'], laid['apartment_plans']
+    flip_offers, flip_refused, flip_chosen = laid['flip_offers'], laid['flip_refused'], laid['flip_chosen']
+    mix_result = laid['mix_result']
     module_changes = []
-
-    # WHERE THE NORTH AND THE BEND ARE BOTH TOO DARK for flats - a core flush on
-    # a dark long face has left the ground beside it without sun, more than a 1k
-    # would take - the core goes to the bend (user, 2026-10-08). Laid again with
-    # those cores moved; a section keeps the move only where it left less ground
-    # without sun.
-    #
-    # Both this and the slides below lay the flats again and again; the bar
-    # moves on every try, or Revit draws nothing for minutes and looks hung
-    # (user, 2026-10-12: "прогін далі 70% не йде, зависає").
-    bar.phase('slides')
-
-    def part(a, b, note):
-        def tick(index=0, total=1, note_=None):
-            share = (index / float(total)) if total else 1.0
-            return bar.tick(a + (b - a) * min(1.0, max(0.0, share)), 1.0, note)
-        return tick
-
-    try:
-        stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans = \
-            apartments.choose_bend((stair_plans, corridor_plans, floor_plans,
-                                    stair_moves, apartment_plans),
-                                   lambda bend: lay(bend, progress=part(
-                                       0.0, 0.2, u'core at the bend')),
-                                   unique_floors=unique_floors)
-    except Exception as error:
-        output.print_md(u'_The core at the bend was not tried: {0}_'.format(
-            u'{0}'.format(error)[:120]))
-
-    # THE SECTIONS CORRECT THEMSELVES (user, 2026-10-09): a straight section whose flats, on its
-    # unique floors, come out beyond their bands has its core slid along its side and is laid again;
-    # the place that leaves the least of the flats beyond their bands is kept.
-    try:
-        stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans = \
-            apartments.choose_slides((stair_plans, corridor_plans, floor_plans,
-                                      stair_moves, apartment_plans),
-                                     outer_walls, inner_walls, records, darkloft,
-                                     unique_floors,
-                                     heights=stairs.section_heights(result),
-                                     plates=corridors.plate_map(records),
-                                     progress=part(0.2, 1.0, u'cores slid along their sides'))
-    except Exception as error:
-        output.print_md(u'_The core was not slid again: {0}_'.format(
-            u'{0}'.format(error)[:120]))
-    if cancelled(bar):
-        quit_run()
-
-    # THE CORE TO THE OPPOSITE SIDE (user, 2026-10-16): the straight meridional sections whose core may go to the other
-    # long side are found here, on the layout the rules made; the window that offers them opens at the END of the run,
-    # open, once the model can be looked at (user: "треба щоб воно все розклало і зробило, користувач міг покрутити,
-    # і тоді вже приймати рішення"). A run laid again from that window puts the core across in the sections ticked.
-    flip_offers, flip_refused, flip_chosen = [], [], set()
-    try:
-        flip_offers, flip_refused = apartments.flip_candidates(
-            (stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans),
-            outer_walls, inner_walls, records, darkloft, unique_floors, north)
-        offered = set(o['section'] for o in flip_offers)
-        flip_chosen = set(s for s in ((again or {}).get('flips') or ()) if s in offered)
-        if flip_chosen:
-            stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans = apartments.apply_flips(
-                (stair_plans, corridor_plans, floor_plans, stair_moves, apartment_plans),
-                flip_offers, flip_chosen)
-        report.core_flips(output, flip_offers, flip_refused, flip_chosen)
-    except Exception as error:
-        output.print_md(u'_The cores were not offered to the opposite side: {0}_'.format(
-            u'{0}'.format(error)[:120]))
-    if cancelled(bar):
-        quit_run()
-
-    # THE MIX OF THE WHOLE FILE (user, 2026-10-09 and the rules of 2026-10-12): every flat of every floor, the
-    # shares brought to the settings window's within 2 points by point changes - `mix`. The working floors' changes
-    # are in the plans placed below; the other floors' are made on their copies (6d).
-    # RULE B (user, 2026-10-16 and 2026-10-19, ORLK section 13): a unique floor where a flat of the first group
-    # loses its facade to a party wall is laid again on its own walls - for the mix's count of the floors and for 6d.
-    # Laid once per floor (`apartments._PARTY_LAID`), with the cores and corridors as they stand now.
-    def _lay_on_own_walls(target):
-        plans_t = apartments.plan(outer_walls, inner_walls, stair_plans, corridor_plans, records, darkloft,
-                                  floors={(target.section, target.level_name): target})
-        cp = next((c for c in corridor_plans
-                   if c.section == target.section and c.level_name == target.level_name), None)
-        return plans_t, (list(cp.points) if cp is not None and cp.points else None)
-    apartments._PARTY_LAID.clear()
-    apartments.PARTY_RELAY = _lay_on_own_walls
-
-    bar.phase('mix')
-    mix_result = None
-    try:
-        mix_result = mix.run(stair_plans, corridor_plans, floor_plans, apartment_plans, unique_floors,
-                             progress=bar.tick, only=only, held=base.get('held') if point else None)
-        apartment_plans = mix_result['plans']
-    except Exception as error:
-        output.print_md(u'_The mix of the file was not fitted: {0}_'.format(u'{0}'.format(error)[:160]))
-    if cancelled(bar):
-        quit_run()
+    # the bands and the shares the kitchen laid with - in place, so every module that imported them reads these
+    config.APARTMENT_BANDS.update(laid['bands'] or {})
+    config.APARTMENT_MIX.update(laid['mix'] or {})
+    config.MAX_1K = bool(laid['max_1k'])
+    for step in ('bend', 'slides', 'flips', 'mix'):
+        if step == 'flips' and laid['cancelled'] != 'slides' and \
+                not any(s == 'flips' for s, _note in laid['notes']):
+            try:
+                report.core_flips(output, flip_offers, flip_refused, flip_chosen)
+            except Exception as error:
+                output.print_md(u'_The cores were not offered to the opposite side: {0}_'.format(
+                    u'{0}'.format(error)[:120]))
+        for s, note in laid['notes']:
+            if s == step:
+                output.print_md(note)
+    bar.done()
 
     # the flats of every section as they stand now - the mix of a later point run counts the others at these
     held_now = dict(base.get('held') or {}) if point else {}
@@ -831,20 +764,11 @@ with ui.Progress(PHASES) as bar:
     # every section of the file, for the window at the end - before a point run keeps only its own
     all_sections = sorted(set(p.section for p in stair_plans), key=collect.section_sort_key)
     # ... and each section's largest plate, for the plan of the sections in that window (03)
-    section_plates = {}
-    for (plate_section, _plate_level), plate_floor in floor_plans.items():
-        plate_ring = getattr(plate_floor, 'plate', None)
-        if not plate_ring or len(plate_ring) < 3:
-            continue
-        plate_m2 = apartments.area_m2(plate_ring)
-        if plate_section not in section_plates or plate_m2 > section_plates[plate_section][0]:
-            section_plates[plate_section] = (plate_m2, [(p[0], p[1]) for p in plate_ring])
-    section_plates = dict((k, v[1]) for k, v in section_plates.items())
+    section_plates = laid['section_plates'] or {}
     if point:
         stair_plans = [p for p in stair_plans if p.section in only]
         corridor_plans = [p for p in corridor_plans if p.section in only]
         apartment_plans = [p for p in apartment_plans if p.section in only]
-        floor_plans = dict((k, v) for k, v in floor_plans.items() if k[0] in only)
 
     # ------------------------------------------------------------------
     # 6. write — both kinds in one group, so one Ctrl+Z undoes the lot
@@ -879,26 +803,26 @@ with ui.Progress(PHASES) as bar:
                         'Tadpole - non-insolated walls', progress=bar.tick,
                         required=required_hours)
         bar.phase('stairs')
-        stair_type, stair_type_name = stairs.find_roof_type(doc)
+        stair_type, stair_type_name = placing.find_stair_type(doc)
         if stair_type is None:
             output.print_md('## No stair roof type')
             output.print_md(
                 'None of `{0}` is in this model, so no stair core was '
                 'placed.'.format('`, `'.join(STAIR_ROOF_TYPES)))
         elif stair_plans:
-            stairs_placed, stairs_failed, stairs_aborted = stairs.place(
+            stairs_placed, stairs_failed, stairs_aborted = placing.place_stairs(
                 doc, stair_plans, stair_type,
                 variant=probe_info.get('variant'), progress=bar.tick)
 
         bar.phase('corridor')
-        corridor_type, corridor_type_name = corridors.find_roof_type(doc)
+        corridor_type, corridor_type_name = placing.find_corridor_type(doc)
         if corridor_type is None:
             output.print_md('## No corridor roof type')
             output.print_md(
                 'None of `{0}` is in this model, so no corridor was '
                 'placed.'.format('`, `'.join(CORRIDOR_ROOF_TYPES)))
         elif corridor_plans:
-            corridors_placed, corridors_failed, corridors_aborted = corridors.place(
+            corridors_placed, corridors_failed, corridors_aborted = placing.place_corridors(
                 doc, corridor_plans, corridor_type,
                 variant=probe_info.get('variant'), progress=bar.tick)
 
@@ -911,7 +835,7 @@ with ui.Progress(PHASES) as bar:
                                why=u'{0}'.format(error)[:160])]
 
         bar.phase('apartments')
-        apartment_types = apartments.find_roof_types(doc)
+        apartment_types = placing.find_flat_types(doc)
         if not any(apartment_types.values()):
             output.print_md('## No apartment roof types')
             output.print_md(
@@ -920,7 +844,7 @@ with ui.Progress(PHASES) as bar:
                     sorted(APARTMENT_ROOF_TYPES.values()))))
         elif apartment_plans:
             apartments_placed, apartments_failed, apartments_aborted = \
-                apartments.place(doc, apartment_plans, apartment_types,
+                placing.place_flats(doc, apartment_plans, apartment_types,
                                  variant=probe_info.get('variant'),
                                  progress=bar.tick)
         bar.done()
@@ -1090,8 +1014,12 @@ with ui.Progress(PHASES) as bar:
                 working = stair_by_id.get((section, level_id))
                 if working is not None:
                     working_levels[section] = working.level_name
-            order = apartments.remaining_floors(floor_plans, unique_floors,
-                                                working_levels)
+            # THE OTHER UNIQUE FLOORS ARE READ ON THE KITCHEN (`engine.read_floors`), against the plans that stand in
+            # the model now: {section: [recipe]} in the order they are worked, each saying what changes on its floor
+            placed_now = [decoder.number_of(p) for p in list(stair_plans) + list(corridor_plans)
+                          + list(apartment_plans)
+                          if getattr(p, 'ok', False) and getattr(p, 'roof', None) is not None]
+            order = decoder.decode(kitchen.floors(working_levels, [n for n in placed_now if n is not None]))
             for section in working_levels:
                 if section not in order:
                     next_failed.append((section, None,
@@ -1170,176 +1098,50 @@ with ui.Progress(PHASES) as bar:
                                 first_group = g
                         if first_group is None or working is None:
                             continue
-                        work_floor = floor_plans.get((section, working_name))
-                        plans_here = [
-                            p for p in apartment_plans
-                            if p.section == section
-                            and p.level_name == working_name
-                            and getattr(p, 'ok', False)
-                            and getattr(p, 'roof', None) is not None]
                         label = groups.DEFAULT_LABEL
                         # floors that change the same flats into the same
                         # flats are ONE typical floor: one group, one name
                         made_groups = {}
                         for target in targets:
+                            target_name = target['level_name']
                             recycle('Tadpole — unique floor {0}'.format(
-                                target.level_name))
+                                target_name))
                             target_stair = stair_by_name.get(
-                                (section, target.level_name))
+                                (section, target_name))
                             if target_stair is None:
                                 next_failed.append(
-                                    (section, target.level_name,
+                                    (section, target_name,
                                      u'no stair core placed there'))
                                 continue
                             old_ids = [target_stair.roof.Id]
                             target_corridor = corridor_by_name.get(
-                                (section, target.level_name))
+                                (section, target_name))
                             if target_corridor is not None:
                                 old_ids.append(target_corridor.roof.Id)
                             dz = target_stair.level_elev - working.level_elev
 
-                            # READ THE FLOOR FIRST - nothing is touched
-                            try:
-                                # A SMALLER PLATE FIRST: everything of the
-                                # group is cut to it; what it touches is not
-                                # asked about again below
-                                work_corridor = corridor_by_name.get(
-                                    (section, working_name))
-                                work_stair = stair_by_name.get(
-                                    (section, working_name))
-                                # AN L-SHAPED SECTION'S OTHER FLOORS ARE LAID
-                                # AGAIN on their own sun (user, 2026-10-06:
-                                # from the fifth floor of section 8 the body
-                                # of the 3k has a window of its own and is no
-                                # pistolet). Every rule below - the plate fit,
-                                # the arms, the big and dead flats - is worked
-                                # out against a straight band and is not asked
-                                # about an L plate.
-                                l_unread = bool(
-                                    work_corridor is not None
-                                    and getattr(work_corridor, 'is_l', False))
-                                l_change = None
-                                reviews_l = []
-                                if l_unread:
-                                    fit = dict(flats=[], corridor=False,
-                                               stair_outside=False)
-                                    transfers, splits = [], []
-                                    dead_recs, blind_recs = [], []
-                                    if target_corridor is not None:
-                                        l_change = apartments.l_floor_changes(
-                                            plans_here, target,
-                                            target_corridor.points,
-                                            apartments.stair_points_of(target),
-                                            work_corridor.points,
-                                            reviews=reviews_l,
-                                            work_plate=getattr(work_floor, 'plate', None),
-                                            work_floor=work_floor)
-                                    else:
-                                        reviews_l.append(
-                                            u'no corridor placed on this floor')
-                                    for review in reviews_l:
-                                        l_log.append((section, target.level_name,
-                                                      review))
-                                else:
-                                    reviews_fit = []
-                                    fit = apartments.fit_plate(
-                                        target, plans_here,
-                                        work_corridor.points
-                                        if work_corridor is not None else None,
-                                        work_stair.points
-                                        if work_stair is not None else None,
-                                        reviews=reviews_fit)
-                                    if fit['stair_outside']:
-                                        reviews_fit.append(dict(
-                                            plan=None, moved=False, lit=None,
-                                            dark=None,
-                                            why=u'the stair core is not inside '
-                                                u'the plate of this floor'))
-                                    for review in reviews_fit:
-                                        fit_log.append(
-                                            (section, target.level_name, review))
-                                    fit_ids = set(id(o) for rec in fit['flats']
-                                                  for o in rec['old'])
-                                    free_plans = [p for p in plans_here
-                                                  if id(p) not in fit_ids]
-                                    reviews_here = []
-                                    transfers = (apartments.arm_transfers(
-                                        work_floor, target, free_plans,
-                                        reviews=reviews_here,
-                                        corridor=apartments._fit_ring(
-                                            fit, work_corridor.points
-                                            if work_corridor is not None else None))
-                                        if work_floor is not None else [])
-                                    for review in reviews_here:
-                                        arm_reviews.append(
-                                            (section, target.level_name, review))
-                                    skip = set(id(r['plan']) for r in reviews_here)
-                                    for rec in transfers:
-                                        skip.add(id(rec['body']))
-                                        skip.add(id(rec['neighbour']))
-                                    reviews_big = []
-                                    # the corridor this floor has, so a cut part
-                                    # keeps its door (user, 2026-10-19, section 6)
-                                    splits = apartments.big_flat_splits(
-                                        target, free_plans, skip,
-                                        reviews=reviews_big,
-                                        corridor=apartments.transfer_corridor(transfers)
-                                        or apartments._fit_ring(
-                                            fit, work_corridor.points
-                                            if work_corridor is not None else None))
-                                    for review in reviews_big:
-                                        arm_reviews.append(
-                                            (section, target.level_name, review))
-                                    for rec in splits:
-                                        skip.add(id(rec['plan']))
-                                    reviews_dead = []
-                                    dead_recs = apartments.dead_changes(
-                                        target, free_plans, skip,
-                                        reviews=reviews_dead)
-                                    for review in reviews_dead:
-                                        dead_reviews_log.append(
-                                            (section, target.level_name, review))
-                                    # A PLAIN FLAT THAT WENT DARK on this floor
-                                    # (user, 2026-10-06): it goes to the flat
-                                    # beside it that has the sun
-                                    skip_b = set(skip)
-                                    for rec in dead_recs:
-                                        for o in rec['old']:
-                                            skip_b.add(id(o))
-                                    reviews_blind = []
-                                    blind_recs = apartments.blind_changes(
-                                        work_floor, target, free_plans, skip_b,
-                                        reviews=reviews_blind)
-                                    for review in reviews_blind:
-                                        blind_log.append(
-                                            (section, target.level_name, review))
-                                    # RULE B: a facade turned party wall here - the
-                                    # floor laid again on its own walls, not the
-                                    # first group's copy changed bit by bit
-                                    party = apartments.party_wall_changes(
-                                        work_floor, target, plans_here,
-                                        work_corridor.points
-                                        if work_corridor is not None else None)
-                                    if party:
-                                        l_change = party
-                                        fit = dict(flats=[], corridor=False,
-                                                   stair_outside=False)
-                                        transfers, splits = [], []
-                                        dead_recs, blind_recs = [], []
-                            except Exception as exc:
-                                next_failed.append(
-                                    (section, target.level_name,
-                                     u'reading the floor crashed: {0}'.format(
-                                         exc)[:160]))
+                            # THE FLOOR AS THE KITCHEN READ IT - nothing was touched (`engine.read_floors`)
+                            logs = target.get('logs') or {}
+                            for review in logs.get('l') or []:
+                                l_log.append((section, target_name, review))
+                            for review in logs.get('fit') or []:
+                                fit_log.append((section, target_name, review))
+                            for review in logs.get('arm') or []:
+                                arm_reviews.append((section, target_name, review))
+                            for review in logs.get('dead') or []:
+                                dead_reviews_log.append((section, target_name, review))
+                            for review in logs.get('blind') or []:
+                                blind_log.append((section, target_name, review))
+                            if target.get('error'):
+                                next_failed.append((section, target_name, target['error']))
                                 continue
+                            fit, transfers, splits = target['fit'], target['transfers'], target['splits']
+                            dead_recs, blind_recs = target['dead_recs'], target['blind_recs']
+                            l_change, l_unread, reviews_l = target['l_change'], target['l_unread'], target['reviews_l']
 
                             # what the mix of the file changed on this floor
-                            mix_overlay = ((mix_result or {}).get('overlays') or {}).get(
-                                (section, target.level_name))
-                            changed = bool(transfers or splits or dead_recs
-                                           or blind_recs or fit['flats']
-                                           or fit['corridor'] or l_change
-                                           or mix_overlay)
+                            mix_overlay = target['mix_overlay']
+                            changed = target['changed']
                             if not changed:
                                 # THE FIRST GROUP'S TWIN: copied as it is
                                 with tx.Attempt(doc) as attempt:
@@ -1347,14 +1149,14 @@ with ui.Progress(PHASES) as bar:
                                         doc, first_group, dz, old_ids)
                                 if not attempt.ok:
                                     next_failed.append(
-                                        (section, target.level_name,
+                                        (section, target_name,
                                          u'{0}'.format(attempt.error)[:160]))
                                     continue
                                 reached = fan_out(section, first_group,
                                                   working.level_elev,
-                                                  target.level_name)
+                                                  target_name)
                                 floor_outcomes.append(
-                                    (section, target.level_name,
+                                    (section, target_name,
                                      (u'L-shaped floor NOT worked: {0}'.format(
                                          u'; '.join(reviews_l))
                                       if (l_unread and reviews_l) else
@@ -1371,9 +1173,7 @@ with ui.Progress(PHASES) as bar:
                             # the same typical floor. Its group is copied
                             # here, and onto this floor's sibling levels -
                             # no group of its own (user, 2026-10-05).
-                            signature = apartments.changes_signature(
-                                transfers, splits, dead_recs, fit, blind_recs,
-                                l_change, mix=mix_overlay)
+                            signature = target['signature']
                             twin = made_groups.get(signature)
                             if twin is not None:
                                 twin_group, twin_elev, twin_floor, twin_name = twin
@@ -1384,15 +1184,15 @@ with ui.Progress(PHASES) as bar:
                                         old_ids)
                                 if not attempt.ok:
                                     next_failed.append(
-                                        (section, target.level_name,
+                                        (section, target_name,
                                          u'{0}'.format(attempt.error)[:160]))
                                     continue
                                 reached = fan_out(section, twin_group,
-                                                  twin_elev, target.level_name)
+                                                  twin_elev, target_name)
                                 # the elevation `fan_out` measures from is
                                 # the one the group stands at
                                 floor_outcomes.append(
-                                    (section, target.level_name,
+                                    (section, target_name,
                                      u'the same changes as {0}'.format(
                                          twin_floor),
                                      u'the same group copied',
@@ -1407,52 +1207,52 @@ with ui.Progress(PHASES) as bar:
                                     target_stair.level_id)
                             if not attempt.ok:
                                 next_failed.append(
-                                    (section, target.level_name,
+                                    (section, target_name,
                                      u'{0}'.format(attempt.error)[:160]))
                                 continue
                             member_ids, moved, skipped, roof_count = \
                                 attempt.result
                             next_made.append((section, working_name,
-                                              target.level_name, roof_count,
+                                              target_name, roof_count,
                                               moved, skipped))
                             level = doc.GetElement(target_stair.level_id)
-                            flats_in_copy = apartments.CopiedFlats(
+                            flats_in_copy = placing.CopiedFlats(
                                 doc, member_ids)
                             with tx.Attempt(doc) as change_attempt:
-                                done_fit = (apartments.apply_plate_fit(
+                                done_fit = (placing.apply_plate_fit(
                                     doc, fit, member_ids, level,
                                     apartment_types, section=section,
                                     corridor_type=corridor_type,
                                     variant=probe_info.get('variant'),
                                     copy=flats_in_copy)
                                     if fit['flats'] or fit['corridor'] else [])
-                                done_arms = (apartments.apply_arm_transfers(
+                                done_arms = (placing.apply_arm_transfers(
                                     doc, transfers, member_ids, level,
                                     apartment_types,
                                     variant=probe_info.get('variant'),
                                     copy=flats_in_copy, section=section,
                                     corridor_type=corridor_type)
                                     if transfers else [])
-                                done_big = (apartments.apply_big_splits(
+                                done_big = (placing.apply_big_splits(
                                     doc, splits, member_ids, level,
                                     apartment_types,
                                     variant=probe_info.get('variant'),
                                     copy=flats_in_copy, section=section,
                                     corridor_type=corridor_type)
                                     if splits else [])
-                                done_dead = (apartments.apply_dead_changes(
+                                done_dead = (placing.apply_dead_changes(
                                     doc, dead_recs, member_ids, level,
                                     apartment_types,
                                     variant=probe_info.get('variant'),
                                     copy=flats_in_copy)
                                     if dead_recs else [])
-                                done_blind = (apartments.apply_dead_changes(
+                                done_blind = (placing.apply_dead_changes(
                                     doc, blind_recs, member_ids, level,
                                     apartment_types,
                                     variant=probe_info.get('variant'),
                                     copy=flats_in_copy)
                                     if blind_recs else [])
-                                done_l = (apartments.apply_l_changes(
+                                done_l = (placing.apply_l_changes(
                                     doc, l_change, member_ids, level,
                                     apartment_types, section=section,
                                     corridor_type=corridor_type,
@@ -1461,7 +1261,7 @@ with ui.Progress(PHASES) as bar:
                                     if l_change else [])
                                 # the mix of the file last: it works on what
                                 # the floor's own changes made
-                                done_mix = (apartments.apply_mix(
+                                done_mix = (placing.apply_mix(
                                     doc, mix_overlay, member_ids, level,
                                     apartment_types, section=section,
                                     variant=probe_info.get('variant'),
@@ -1473,42 +1273,42 @@ with ui.Progress(PHASES) as bar:
                                                          done_mix)
                             if not change_attempt.ok:
                                 arms_done.append(
-                                    (section, target.level_name, None,
+                                    (section, target_name, None,
                                      u'{0}'.format(change_attempt.error)[:160]))
                                 next_failed.append(
-                                    (section, target.level_name,
+                                    (section, target_name,
                                      u'the changes were not made, so the floor '
                                      u'stays ungrouped as the copy'))
                                 continue
                             done_arms, done_big, done_dead, done_fit, \
                                 done_blind, done_l, done_mix = change_attempt.result
                             for rec, why in done_mix:
-                                mix_done.append((section, target.level_name,
+                                mix_done.append((section, target_name,
                                                  rec, why))
                             for rec, why in done_l:
-                                l_done.append((section, target.level_name,
+                                l_done.append((section, target_name,
                                                rec, why))
                             for rec, why in done_blind:
-                                blind_done.append((section, target.level_name,
+                                blind_done.append((section, target_name,
                                                    rec, why))
                             for rec, why in done_fit:
-                                fit_done.append((section, target.level_name,
+                                fit_done.append((section, target_name,
                                                  rec, why))
                             for rec, why in done_arms:
-                                arms_done.append((section, target.level_name,
+                                arms_done.append((section, target_name,
                                                   rec, why))
                             for rec, why in done_big:
-                                big_done.append((section, target.level_name,
+                                big_done.append((section, target_name,
                                                  rec, why))
                             for rec, why in done_dead:
-                                dead_done.append((section, target.level_name,
+                                dead_done.append((section, target_name,
                                                   rec, why))
 
                             # THE WHOLE FLOOR, GROUPED AGAIN UNDER A NEW NAME -
                             # in a transaction of its own, after the changes
                             # are committed
                             recycle('Tadpole — group unique floor {0}'.format(
-                                target.level_name))
+                                target_name))
                             label = groups.next_label(label)
                             roof_ids = groups.live_roofs(
                                 doc, member_ids, flats_in_copy.created)
@@ -1528,7 +1328,7 @@ with ui.Progress(PHASES) as bar:
                                     (section, target_stair.level_id,
                                      group_note or u'unknown error'))
                                 floor_outcomes.append(
-                                    (section, target.level_name,
+                                    (section, target_name,
                                      change_text(fit, transfers, splits, dead_recs, blind_recs, l_change, mix_overlay),
                                      u'changed, but NOT grouped',
                                      u'-', []))
@@ -1537,17 +1337,17 @@ with ui.Progress(PHASES) as bar:
                                                 len(roof_ids), label))
                             made_groups[signature] = (
                                 new_group, target_stair.level_elev,
-                                target.level_name,
+                                target_name,
                                 u'{0}_type_{1}'.format(section, label))
                             if group_note:
                                 groups_failed.append(
                                     (section, target_stair.level_id,
                                      u'grouped, but {0}'.format(group_note)))
                             recycle('Tadpole — copy the group of {0}'.format(
-                                target.level_name))
+                                target_name))
                             reached = fan_out(section, new_group,
                                               target_stair.level_elev,
-                                              target.level_name)
+                                              target_name)
                             # IS THE GROUP STILL THERE? Said in the report,
                             # not assumed.
                             alive, instances = False, None
@@ -1571,7 +1371,7 @@ with ui.Progress(PHASES) as bar:
                                      u'{1} expected'.format(
                                          instances, 1 + len(reached))))
                             floor_outcomes.append(
-                                (section, target.level_name,
+                                (section, target_name,
                                  change_text(fit, transfers, splits, dead_recs, blind_recs, l_change, mix_overlay),
                                  u'grouped again under a new name',
                                  u'{0}_type_{1}'.format(section, label),
@@ -1582,6 +1382,9 @@ with ui.Progress(PHASES) as bar:
     except Exception as exc:
         next_failed.append((None, None,
                             u'next-floor step crashed: {0}'.format(exc)[:200]))
+    finally:
+        if kitchen is not None:
+            kitchen.close()
 
 
 # ======================================================================
@@ -1616,14 +1419,11 @@ report.unique_floors(output, unique_floors, by_building=section_building)
 report.stairs(output, stair_plans, placed=stairs_placed, failed=stairs_failed,
               aborted=stairs_aborted, roof_type=stair_type_name)
 
-try:
-    whole_mix = apartments.whole_mix(stair_plans, corridor_plans, floor_plans,
-                                     apartment_plans, unique_floors,
-                                     finals=(mix_result or {}).get('finals'))
-except Exception as error:
-    whole_mix = None
-    output.print_md(u'_The mix of the whole file was not counted: {0}_'.format(
-        u'{0}'.format(error)[:120]))
+# counted on the kitchen, over a point run's sections only
+whole_mix = laid['whole_mix']
+for s, note in laid['notes']:
+    if s == 'whole':
+        output.print_md(note)
 report.apartments(output, apartment_plans, placed=apartments_placed,
                   failed=apartments_failed, aborted=apartments_aborted,
                   moves=stair_moves, whole=whole_mix)
@@ -1631,7 +1431,7 @@ report.apartments(output, apartment_plans, placed=apartments_placed,
 if module_changes:
     output.print_md(u'## Sections laid with a bigger module - to bring the flats into their bands')
     output.print_table(
-        table_data=[[section, u'{0:.0f} mm'.format(apartments.BASE_MODULE_MM), u'{0:.0f} mm'.format(mm),
+        table_data=[[section, u'{0:.0f} mm'.format(laid.get('base_module_mm') or 0), u'{0:.0f} mm'.format(mm),
                      u'{0} flat(s), {1:.1f} m2 beyond their bands, {2} dead space(s)'.format(*before),
                      u'{0} flat(s), {1:.1f} m2 beyond their bands, {2} dead space(s)'.format(*after)]
                     for section, mm, before, after in module_changes],
@@ -1957,11 +1757,12 @@ try:
             continue
         run_w = run_levels.get((run_section, run_name), 1)
         here = run_band.setdefault(run_section, [0, 0])
-        for run_rooms, run_raw, run_is_dead in run_flats:
+        run_in_band = (laid['finals_in_band'] or {}).get((run_section, run_name)) or []
+        for run_i, (run_rooms, run_raw, run_is_dead) in enumerate(run_flats):
             if run_is_dead or not run_rooms:
                 continue
             here[1] += run_w
-            here[0] += run_w if apartments.in_band(run_raw, run_rooms) else 0
+            here[0] += run_w if (run_i < len(run_in_band) and run_in_band[run_i]) else 0
     band_now = dict((base.get('band') or {}) if point else {})
     band_now.update(run_band)
     run_numbers = dict(counts=run_counts, dead=run_dead, floors=run_floors,
@@ -2023,6 +1824,7 @@ if flip_offers or all_sections:
                              held=held_now, band=band_now, console=console)
             flip_ui.show_open(flip_offers, flip_chosen,
                               rerun.applier(event, setting_values, latitude, output, base_next, flip_chosen),
-                              all_sections, section_plates, run_numbers, show3d_request)
+                              all_sections, section_plates, run_numbers, show3d_request,
+                              labels=laid.get('section_labels') if laid else None)
     except Exception as error:
         output.print_md(u'_The window for the cores was not opened: {0}_'.format(u'{0}'.format(error)[:120]))
