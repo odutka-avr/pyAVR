@@ -20,6 +20,9 @@ logger = script.get_logger()
 
 
 class Apartment:
+
+    ROUND_BY = 2    # default value = 2, is set in script.py with val chosen by user
+    
     """
     Represents an apartment unit composed of multiple Room_wrapper instances.
 
@@ -84,19 +87,19 @@ class Apartment:
         self.__clear_areas()
 
         for room in self.rooms:
-            self.total_area_w_fn_lr += room.area_w_finish_layer
-            self.total_area_w_coef_fn_lr += room.area_w_coef_finish_layer
+            self.total_area_w_fn_lr += self.__round_by(room.area_w_finish_layer)
+            self.total_area_w_coef_fn_lr += self.__round_by(room.area_w_coef_finish_layer)
 
             # add to living area
             if room.room_type == 1:
-                self.living_area_w_coef_fn_lr += room.area_w_coef_finish_layer
+                self.living_area_w_coef_fn_lr += self.__round_by(room.area_w_coef_finish_layer)
             
             # add to inner apartment area
             if (room.room_type == 1) or (room.room_type == 2):
-                self.inner_area_w_coef_fn_lr += room.area_w_coef_finish_layer
+                self.inner_area_w_coef_fn_lr += self.__round_by(room.area_w_coef_finish_layer)
             
             # form window sills and doorsteps areas for apartment
-            self.total_area_w_fn_lr_w_sills += room.area_w_finish_layer_w_window_door_sills
+            self.total_area_w_fn_lr_w_sills += self.__round_by(room.area_w_finish_layer_w_window_door_sills)
     
     
     def __clear_areas(self):
@@ -107,7 +110,10 @@ class Apartment:
         self.living_area_w_coef_fn_lr = 0
         self.total_area_w_fn_lr_w_sills = 0
 
-    def get_round_area_liv(self, round_by):
+    def __round_by(self, val):
+            return round(val, self.ROUND_BY)
+
+    def get_round_area_liv(self):
         """
         Returns living area (type 1 rooms only) rounded to round_by decimals,
         converted to internal Revit sq meters unit via set_sq_meters().
@@ -115,9 +121,9 @@ class Apartment:
         Args:
             round_by (int): Number of decimal places.
         """
-        return set_sq_meters(round(self.living_area_w_coef_fn_lr, round_by))
+        return set_sq_meters(self.living_area_w_coef_fn_lr)
     
-    def get_round_area_total_w_fn_lr(self, round_by):
+    def get_round_area_total_w_fn_lr(self):
         """
         Returns total area with finish layer applied (no coef),
         rounded to round_by decimals.
@@ -125,9 +131,9 @@ class Apartment:
         Args:
             round_by (int): Number of decimal places.
         """
-        return set_sq_meters(round(self.total_area_w_fn_lr, round_by))
+        return set_sq_meters(self.total_area_w_fn_lr)
     
-    def get_round_area_total_w_coef_fn_lr(self, round_by):
+    def get_round_area_total_w_coef_fn_lr(self):
         """
         Returns total area with finish layer and coef applied,
         rounded to round_by decimals.
@@ -135,9 +141,9 @@ class Apartment:
         Args:
             round_by (int): Number of decimal places.
         """
-        return set_sq_meters(round(self.total_area_w_coef_fn_lr, round_by))
+        return set_sq_meters(self.total_area_w_coef_fn_lr)
     
-    def get_round_area_inner_w_coef_fn_lr(self, round_by):
+    def get_round_area_inner_w_coef_fn_lr(self):
         """
         Returns area of inner rooms (types 1 and 2) with finish layer
         and coef applied, rounded to round_by decimals.
@@ -145,10 +151,10 @@ class Apartment:
         Args:
             round_by (int): Number of decimal places.
         """
-        return set_sq_meters(round(self.inner_area_w_coef_fn_lr, round_by))
+        return set_sq_meters(self.inner_area_w_coef_fn_lr)
     
-    def get_round_area_total_w_fn_lr_w_sills(self, round_by):
-        return set_sq_meters(round(self.total_area_w_fn_lr_w_sills, round_by))
+    def get_round_area_total_w_fn_lr_w_sills(self):
+        return set_sq_meters(self.total_area_w_fn_lr_w_sills)
 
     
     def __str__(self):
@@ -190,15 +196,15 @@ class Room_wrapper:
         self.room_type = self.__get_room_type()
         self.room_category = self.__get_room_category()
         self.building_section_number = self.__get_building_section_numebr()
-        self.perimeter = self.__get_perimeter()
-        self.non_wall_boundaries_length = self.__get_non_wall_boundaries_length()
+        self.perimeter = self.__get_perimeter()                                     # m
+        self.non_wall_boundaries_length = self.__get_non_wall_boundaries_length()   # m
         self.coef = None
         # these params are set after calling setter method set_finish_layer_width
-        self.finish_layer_width = 0
+        self.finish_layer_width = 0                                                 # m
         self.finish_layer_area = 0
 
         # room areas
-        self.area_default = self.__get_area()   # raw area
+        self.area_default = self.__get_area()   # raw area (m2)
         self.area_w_finish_layer = 0            # area without applied coef
         self.area_w_coef_finish_layer = 0       # area with coef and finish layer
 
@@ -258,13 +264,13 @@ class Room_wrapper:
 
             area_w_finish_layer_w_window_door_sills
         """
-        # calculate and set finish layer area
+        # calculate and set finish layer area - m2
         self.finish_layer_area = self.__get_finish_layer_area()
 
-        # set param - defult area with finish layer
+        # set param - defult area with finish layer - m2
         self.area_w_finish_layer = self.area_default - self.finish_layer_area
 
-        # set param - area with coef and finish layer
+        # set param - area with coef and finish layer - m2
         self.area_w_coef_finish_layer = self.area_w_finish_layer * self.coef
 
         # calculate door and window doorstep (sill) area
@@ -402,8 +408,7 @@ class Room_wrapper:
         Calculates the area consumed by the finish layer in m².
 
         Formula:
-            (perimeter (mm) - non_wall_boundaries_length (mm)) * finish_layer_width / 10^6
-            (converts mm² result to m²)
+            (perimeter (m) - non_wall_boundaries_length (m)) * finish_layer_width (m)
 
         Returns:
             float: Finish layer area in m².

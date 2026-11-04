@@ -29,6 +29,7 @@ from room_data_form import RoomDataForm
 from room_parser import Room_parser
 from shared_parameters import Shared_parameters
 from rooming_cache import RoomingCacheManager
+from rooms import Apartment
 # ========================================================================
 
 
@@ -170,11 +171,12 @@ logger.debug("usr_round_by: [{}],\n" \
                                                 usr_omitted_categories,
                                                 usr_include_sills))
 
-
 # if user closes form without choosing DO, exit script
 if not usr_do:
     script.exit()
 
+# set default round by value to apartment calss variable
+Apartment.ROUND_BY = usr_round_by
 
 # get parsed rooms and apartments data
 rooms = room_parser.room_data
@@ -244,15 +246,15 @@ try:
         # room.room_el.get_Parameter(Shared_parameters.APARTMENT_NUMBER).Set(apt_number)
 
         # set apartment area total
-        apt_total_area = room.apartment.get_round_area_total_w_coef_fn_lr(usr_round_by)
+        apt_total_area = room.apartment.get_round_area_total_w_coef_fn_lr()
         room.room_el.get_Parameter(Shared_parameters.APARTMENT_TOTAL_AREA).Set(apt_total_area)
 
         # set apartment living area
-        apt_living_area = room.apartment.get_round_area_liv(usr_round_by)
+        apt_living_area = room.apartment.get_round_area_liv()
         room.room_el.get_Parameter(Shared_parameters.APARTMENT_LIVING_AREA).Set(apt_living_area)
 
         # set apartment inner area (area of type 1,2 rooms)
-        apt_inner_area = room.apartment.get_round_area_inner_w_coef_fn_lr(usr_round_by)
+        apt_inner_area = room.apartment.get_round_area_inner_w_coef_fn_lr()
         room.room_el.get_Parameter(Shared_parameters.APARTMENT_INNER_AREA).Set(apt_inner_area)
 
         # set apartment number of type 1 rooms (living)
@@ -260,7 +262,7 @@ try:
         room.room_el.get_Parameter(Shared_parameters.NUMBER_OF_ROOMS).Set(apt_number_type1_rooms)
 
         # set apartment total area with doorstep and window sills areas (no coefs)
-        apt_total_area_w_sills = room.apartment.get_round_area_total_w_fn_lr_w_sills(usr_round_by)
+        apt_total_area_w_sills = room.apartment.get_round_area_total_w_fn_lr_w_sills()
         room.room_el.LookupParameter("AVR_Площа квартири з порогами").Set(apt_total_area_w_sills)
 
         # set room area coefficient
