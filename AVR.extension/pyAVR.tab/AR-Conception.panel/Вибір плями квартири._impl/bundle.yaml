@@ -1,0 +1,14 @@
+title: Вибір
+  плями квартири
+tooltip: >
+  Виберіть на плані дах-пляму квартири одного з типів:
+  "1k boundary - 400mm", "2k boundary - 400mm" або
+  "3k boundary - 400mm". Після вибору з'явиться повідомлення з типом,
+  ID та площею обраного елемента. Натисніть кнопку ще раз, щоб
+  вибрати наступну пляму.
+author: DKUI port
+min_revit_ver: 2024
+max_revit_ver: 2024
+engine:
+  clean: false
+  persistent: true

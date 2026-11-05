@@ -1,0 +1,11 @@
+title: Froglet
+tooltip: >
+  Froglet with the hosted backend (the address and the token are in settings.txt): the window
+  asks the server for every placement decision (rotate / mirror / move, stair core, walls,
+  floor layout, which apartment suits a footprint) and does not run without it.
+author: AVR
+min_revit_ver: 2024
+max_revit_ver: 2024
+engine:
+  clean: false
+  persistent: true
