@@ -169,8 +169,8 @@ def _size_labels(polygon, polygons, scale, centre, placed):
     return labels
 
 
-def build(items, occupied_ids=(), assigned_ids=(), mzk_polygons=(), core_polygons=(), group_of=None, max_width=760.0,
-          max_height=520.0, margin=84.0):
+def build(items, occupied_ids=(), assigned_ids=(), mzk_polygons=(), core_polygons=(), group_of=None, max_width=260.0,
+          max_height=400.0, margin=48.0):
     """The scheme of `items` (footprint dicts) on a canvas, or None when there is nothing to draw.
 
     {"width", "height", "margin", "shapes": [{"id", "points": [(x, y)], "label": (x, y), "title": u"2к", "area": u"58 м²",

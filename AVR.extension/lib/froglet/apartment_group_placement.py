@@ -55,6 +55,7 @@ from Autodesk.Revit.DB import (
     ElementTransformUtils,
     Face,
     FailureProcessingResult,
+    FailureResolutionType,
     FailureSeverity,
     FamilyInstance,
     FilteredElementCollector,
@@ -217,6 +218,14 @@ def _pump_ui_messages():
     if _quiet["on"]:
         return
 
+    try:                    # the "Work in Frogress" card: a placement that takes long must not let it go stale (it goes after 10 s)
+        import splash
+
+        if splash.active():
+            splash.blink()
+    except Exception:
+        pass
+
     try:
         _WinFormsApplication.DoEvents()
     except Exception:
@@ -301,31 +310,47 @@ def _resolve_failures_accessor(failuresAccessor):
 
         error_resolved = False
 
+        # An error that offers "Unjoin Elements" is resolved with it (what the user would press), before the others.
         try:
-            failuresAccessor.ResolveFailure(f)
-            _log("  [FAILURE SUPPRESS] error resolved by default resolution: {}".format(desc))
-            resolved_error = True
-            error_resolved = True
+            offered = list(f.GetAvailableResolutionTypes())
         except Exception:
+            offered = []
+        if FailureResolutionType.UnjoinElements in offered:
             try:
-                available_resolutions = list(f.GetAvailableResolutionTypes())
+                f.SetCurrentResolutionType(FailureResolutionType.UnjoinElements)
+                failuresAccessor.ResolveFailure(f)
+                _log("  [FAILURE SUPPRESS] error resolved by unjoining the elements: {}".format(desc))
+                resolved_error = True
+                error_resolved = True
             except Exception:
-                available_resolutions = []
+                pass
 
-            for res_type in available_resolutions:
+        if not error_resolved:
+            try:
+                failuresAccessor.ResolveFailure(f)
+                _log("  [FAILURE SUPPRESS] error resolved by default resolution: {}".format(desc))
+                resolved_error = True
+                error_resolved = True
+            except Exception:
                 try:
-                    f.SetCurrentResolutionType(res_type)
-                    failuresAccessor.ResolveFailure(f)
-                    _log("  [FAILURE SUPPRESS] error resolved using '{}': {}".format(res_type, desc))
-                    resolved_error = True
-                    error_resolved = True
-                    break
+                    available_resolutions = list(f.GetAvailableResolutionTypes())
                 except Exception:
-                    pass
+                    available_resolutions = []
 
-            if not error_resolved:
-                _log("  [FAILURE SUPPRESS ERROR] unresolved error, transaction will rollback silently: {}".format(desc))
-                unresolved_error = True
+                for res_type in available_resolutions:
+                    try:
+                        f.SetCurrentResolutionType(res_type)
+                        failuresAccessor.ResolveFailure(f)
+                        _log("  [FAILURE SUPPRESS] error resolved using '{}': {}".format(res_type, desc))
+                        resolved_error = True
+                        error_resolved = True
+                        break
+                    except Exception:
+                        pass
+
+        if not error_resolved:
+            _log("  [FAILURE SUPPRESS ERROR] unresolved error, transaction will rollback silently: {}".format(desc))
+            unresolved_error = True
 
     if unresolved_error:
         return FailureProcessingResult.ProceedWithRollBack

@@ -354,7 +354,17 @@ class _CallbackExternalEventHandler(IExternalEventHandler):
         # success.
         _debug_log("DKUI: ExternalEvent '{}' Execute() invoked.".format(self._name))
         try:
-            self._callback(uiapp)
+            # Revit's own messages do not disturb the run (revit_quiet: failures settled, dialogs answered with OK).
+            try:
+                import revit_quiet
+                quiet = revit_quiet.quiet(uiapp)
+            except Exception:
+                quiet = None
+            if quiet is None:
+                self._callback(uiapp)
+            else:
+                with quiet:
+                    self._callback(uiapp)
         except Exception as error:
             _debug_log(
                 "DKUI: зовнішня подія '{}' завершилася помилкою:\n```\n{}\n```".format(
@@ -415,8 +425,8 @@ def _set_groups_message(window, text):
         window.AutoPickChosenButton.Visibility = _Visibility.Collapsed
         window.ClearChoiceButton.Visibility = _Visibility.Collapsed
         window.SchemeTypesList.Items.Clear()
-        window.SchemeTypesPanel.Visibility = _Visibility.Collapsed
         window._type_lines = {}
+        _show_scheme_columns(window, False)
     except Exception:
         pass
     label = TextBlock()
@@ -688,12 +698,6 @@ def _refresh_available_groups(window, uiapp, items=None):
     assigned = dict(floor["assigned"]) if floor_filtered else {}
     mzk, cores = _read_scheme_lines(uidoc.Document, view)
     _draw_scheme(window, items, occupied, assigned, mzk, cores, groups)
-    if not groups:
-        note = TextBlock()
-        note.Text = u"Для всіх плям уже є квартири."
-        note.Style = window.FindResource("BodyTextStyle")
-        note.Margin = Thickness(0, 8, 0, 0)
-        window.AvailableGroupsList.Items.Add(note)
 
 
 # ============================================================
@@ -792,6 +796,29 @@ def _scheme_outline(canvas, points, color, thickness, dashed, tooltip):
     return outline
 
 
+def _show_scheme_columns(window, shown):
+    """The buttons and the types (with their headings and dividers) are there while the scheme is."""
+    from System.Windows import Visibility
+
+    window._scheme_shown = bool(shown)
+    state = Visibility.Visible if shown else Visibility.Collapsed
+    for name in ("SchemeSidePanel", "SchemeTypesPanel", "SchemeDividerLeft", "SchemeDividerRight"):
+        getattr(window, name).Visibility = state
+    _sync_side_message(window)
+
+
+def _sync_side_message(window):
+    """"Всі плями вже розплановані" under "Параметри вибору:" when none of its buttons is shown."""
+    from System.Windows import Visibility
+
+    try:
+        buttons = (window.AutoPickPlansButton, window.AutoPickChosenButton, window.SelectTypeButton, window.ClearChoiceButton)
+        nothing = all(button.Visibility != Visibility.Visible for button in buttons)
+        window.SchemeSideEmpty.Visibility = Visibility.Visible if nothing and getattr(window, "_scheme_shown", False) else Visibility.Collapsed
+    except Exception:
+        pass
+
+
 def _group_color(number):
     return _SCHEME_GROUP_COLORS[(number - 1) % len(_SCHEME_GROUP_COLORS)]
 
@@ -869,12 +896,14 @@ def _draw_scheme(window, items, occupied, assigned, mzk=(), cores=(), groups=())
     box.Stretch = Stretch.Uniform
     box.StretchDirection = StretchDirection.DownOnly
     box.MaxHeight = _SCHEME_MAX_HEIGHT
-    _align_scheme_buttons(window, layout["margin"] * min(1.0, _SCHEME_MAX_HEIGHT / layout["height"]))
+    box.MaxWidth = _SCHEME_MAX_WIDTH
+    _align_scheme_buttons(window, layout["margin"] * min(1.0, _SCHEME_MAX_HEIGHT / layout["height"], _SCHEME_MAX_WIDTH / layout["width"]))
     box.HorizontalAlignment = HorizontalAlignment.Left
     box.Child = canvas
     window.AvailableGroupsList.Items.Clear()
     window.AvailableGroupsList.Items.Add(box)
     _fill_scheme_types(window, groups)
+    _show_scheme_columns(window, True)
 
 
 def _fill_scheme_types(window, groups):
@@ -890,7 +919,11 @@ def _fill_scheme_types(window, groups):
 
     window.SchemeTypesList.Items.Clear()
     window._type_lines = {}
-    window.SchemeTypesPanel.Visibility = Visibility.Visible if groups else Visibility.Collapsed
+    if not groups:
+        message = TextBlock()
+        message.Text = u"Всі плями вже розплановані"
+        message.Style = window.FindResource("BodyTextStyle")
+        window.SchemeTypesList.Items.Add(message)
     for number, group in enumerate(groups, 1):
         circle = Ellipse()
         circle.Width = circle.Height = 12
@@ -950,7 +983,8 @@ def _make_type_line_handler(window, footprint_id):
     return _handler
 
 
-_SCHEME_MAX_HEIGHT = 600.0       # the scheme is shrunk to this height when it is taller
+_SCHEME_MAX_HEIGHT = 520.0       # the scheme is shrunk to this height when it is taller
+_SCHEME_MAX_WIDTH = 350.0        # ... and to this width (the buttons and the types stand beside it in a window of about 760)
 
 
 def _align_scheme_buttons(window, top):
@@ -959,10 +993,10 @@ def _align_scheme_buttons(window, top):
     from System.Windows import Thickness
 
     try:
-        window.SchemeSidePanel.Margin = Thickness(18, top, 0, 0)
-        window.SchemeTypesPanel.Margin = Thickness(18, top, 0, 0)
-        window.SchemeDividerLeft.Margin = Thickness(18, top, 0, 0)          # (the dividers start there too)
-        window.SchemeDividerRight.Margin = Thickness(18, top, 0, 0)
+        window.SchemeSidePanel.Margin = Thickness(12, top, 0, 0)
+        window.SchemeTypesPanel.Margin = Thickness(16, top, 0, 0)           # (the types stand a little farther to the right)
+        window.SchemeDividerLeft.Margin = Thickness(12, top, 0, 0)          # (the dividers start there too)
+        window.SchemeDividerRight.Margin = Thickness(16, top, 0, 0)
     except Exception:
         pass
 
@@ -1122,6 +1156,7 @@ def _paint_schema_choice(window, chosen_ids):
 
     schema = getattr(window, "_schema", {})
     chosen = set(chosen_ids or ())
+    window._scheme_chosen_any = bool(chosen)
     chosen_free = [roof_id for roof_id in chosen if schema.get(roof_id, {}).get("state") == "free"]
     chosen_assigned = [roof_id for roof_id in chosen if schema.get(roof_id, {}).get("state") == "assigned"]
     number = None
@@ -1146,12 +1181,17 @@ def _paint_schema_choice(window, chosen_ids):
     for footprint_id, (line, original) in getattr(window, "_type_lines", {}).items():     # the lines of the types
         line.Background = _hex_brush(_SCHEME_INK) if footprint_id in chosen else Brushes.Transparent
         line.Foreground = Brushes.White if footprint_id in chosen else original
+    others_left = False
+    groups = getattr(window, "_groups_data", None) or []
+    if number is not None and groups and number <= len(groups):
+        others_left = any(member["id"] not in chosen for member in groups[number - 1]["members"])
     try:
-        window.SelectTypeButton.Visibility = Visibility.Visible if chosen_free else Visibility.Collapsed
+        window.SelectTypeButton.Visibility = Visibility.Visible if chosen_free and others_left else Visibility.Collapsed
         window.AutoPickChosenButton.Visibility = Visibility.Visible if chosen_free else Visibility.Collapsed
         window.ClearChoiceButton.Visibility = Visibility.Visible if chosen_assigned else Visibility.Collapsed
     except Exception:
         pass
+    _sync_run_buttons(window)                  # ("... для решти плям" goes while something is chosen, comes back with none)
 
 
 def _choose_whole_type(window):
@@ -1386,7 +1426,7 @@ def _auto_start_floor_layout(window, view, items, occupied):
 
 
 def _sync_run_buttons(window):
-    """The "Запустити" at the bottom right: with "2" open it is there as soon as ONE footprint has its apartment (nothing is
+    """The "Запустити" at the bottom right (and the "Автоматичний вибір планувань для решти плям" beside the scheme): with "2" open it is there as soon as ONE footprint has its apartment (nothing is
     placed until it is pressed); with "3" open it runs the ticked edits."""
     from System.Windows import Visibility
 
@@ -1396,6 +1436,20 @@ def _sync_run_buttons(window):
             Visibility.Visible if floor and floor["assigned"] and window.FootprintExpander.IsExpanded else Visibility.Collapsed
         )
         window.PlacedRunButton.Visibility = Visibility.Visible if window.GeometryExpander.IsExpanded else Visibility.Collapsed
+        # "Автоматичний вибір планувань для решти плям" is there only while some footprint still has no layout chosen.
+        if floor:
+            pending = any(roof_id not in floor["assigned"] for roof_id in floor["footprints"])
+        else:                            # (the layout has not started yet: any footprint with no apartment placed)
+            view_items = getattr(window, "_view_items", None)
+            occupied_pair = getattr(window, "_occupied", None)
+            taken = occupied_pair[1] if occupied_pair and view_items and occupied_pair[0] == view_items[0] else set()
+            pending = bool(view_items) and any(item["id"] not in taken for item in view_items[1])
+        # (and not while a footprint is chosen: then the buttons for the chosen ones stand there; nor while "Запустити" is placing
+        # the floor: the mode is already off, "occupied" is not read again yet, so the footprints being placed would look free)
+        placing = getattr(window, "_floor_cleanup", None) is not None
+        shown = pending and not placing and not getattr(window, "_scheme_chosen_any", False)
+        window.AutoPickPlansButton.Visibility = Visibility.Visible if shown else Visibility.Collapsed
+        _sync_side_message(window)
     except Exception:
         pass
 
@@ -1473,10 +1527,13 @@ def _auto_pick_floor_plans(window, uiapp):
     floor layout (the single pick) it finds the plan for the picked footprint."""
     floor = getattr(window, "_floor", None)
     uidoc = uiapp.ActiveUIDocument
+    silent = bool(getattr(window, "_auto_silent", False))
+    window._auto_silent = False
     if uidoc is None:
         return
     if not floor:
-        _auto_pick_picked_footprints(window)
+        if not silent:
+            _auto_pick_picked_footprints(window)
         return
 
     import apartment_groups
@@ -1498,7 +1555,10 @@ def _auto_pick_floor_plans(window, uiapp):
 
     apartments = getattr(window, "_all_apartments", None) or []
     if not apartments:
-        forms.alert(u"Банк квартир порожній - нічого підбирати.", title="Froglet")
+        if silent:                       # (it started by itself with the plan: no dialog)
+            window.StatusText.Text = u"Банк квартир порожній - планування не підібрано."
+        else:
+            forms.alert(u"Банк квартир порожній - нічого підбирати.", title="Froglet")
         return
 
     # Where each footprint's outside side runs is in its placement payload: a Рядове footprint is then
@@ -1813,6 +1873,12 @@ def _start_floor_layout(window, uiapp):
         u"Розпланування поверху: оберіть плями ({}), потім квартиру і натисніть «Підтвердити вибір»."
         .format(len(open_ids))
     )
+    # By default the open plan is filled by the script at once; what the user does not like he changes (the cross, "Очистити",
+    # the bank tab). It starts by itself, so no dialog when the bank is empty.
+    if getattr(window, "_floor_auto_event", None) is not None:
+        window._auto_scope = "all"
+        window._auto_silent = True
+        window._floor_auto_event.Raise()
 
 
 def _cancel_floor_layout(window, uiapp):
@@ -2806,6 +2872,16 @@ def _flush_room_tags(uiapp):
         return
     apartment_group_placement.flush_deferred_room_tags(uidoc.Document)
     apartment_group_placement.flush_pending_room_tags(uidoc.Document)
+    # The apartment files bring their own tag families (some of them the project's older ones: blue text, no frame on the
+    # apartment tag); every placed apartment gets the same ones (room_tag_tidy.CANONICAL_TAG_FAMILIES), right after its placement.
+    try:
+        import room_tag_tidy
+
+        switched = room_tag_tidy.unify_placed(uidoc.Document)
+        if switched:
+            _debug_log(u"DKUI: позначки приведено до одних сімейств: {}".format(switched))
+    except Exception:
+        _debug_log(u"DKUI: сімейства позначок не вирівняно:\n```\n{}\n```".format(traceback.format_exc()))
 
 
 def _active_design_option_problem(document):
@@ -2843,6 +2919,32 @@ def _active_design_option_problem(document):
 _AUTO_GEOMETRY_KEYS = ["external_walls", "internal_walls", "duplicate_walls", "stair_core", "apartment_areas", "floor_slab"]
 
 
+# The share of the "Work in Frogress" card (splash.py) each part of a run takes: the apartments, the bedroom check, the geometry.
+_CARD_PLACE_SHARE = 0.80
+_CARD_BEDROOM_SHARE = 0.85
+_CARD_GEOMETRY_STEPS = 5          # (the walls inside, the node, the walls after it, the areas, the slab)
+
+
+def _card():
+    """The progress card module, or None when it cannot be had (the card is cosmetic: a run never depends on it)."""
+    try:
+        import splash
+
+        return splash
+    except Exception:
+        return None
+
+
+def _card_start(card):
+    """Put the card up; True when it is up (the reason is logged when it is not)."""
+    if card is None:
+        return False
+    shown = card.start()
+    if not shown:
+        _debug_log(u"DKUI: картка прогресу: " + card.status())
+    return bool(shown)
+
+
 def _run_geometry_after_floor(uiapp):
     """Right after a whole floor is laid out: the geometry edits run on every apartment placed on that floor (the same
     apartments the stage "Редагування геометрії" worked on). Never raises."""
@@ -2864,7 +2966,30 @@ def _run_geometry_after_floor(uiapp):
         group_ids = sorted(entry["groupId"] for entry in entries)
         if not group_ids:
             return
-        messages = apartment_edits.run_many(uiapp, uidoc.Document, group_ids, list(_AUTO_GEOMETRY_KEYS))
+        # The card again for the last part of the run (the dialogs of the placement were between): it goes on from where it was.
+        card = _card()
+        shown = _card_start(card)
+        steps = {"done": 0}
+
+        def _progress(name):
+            if not shown:
+                return True
+            if card.cancel_requested:
+                return False                          # (the edits stop between two steps, never inside one)
+            share = min(1.0, steps["done"] / float(_CARD_GEOMETRY_STEPS))
+            card.blink(_CARD_BEDROOM_SHARE + (1.0 - _CARD_BEDROOM_SHARE) * share)
+            steps["done"] += 1
+            return True
+
+        if shown:
+            card.blink(_CARD_BEDROOM_SHARE)
+        try:
+            messages = apartment_edits.run_many(uiapp, uidoc.Document, group_ids, list(_AUTO_GEOMETRY_KEYS), _progress)
+            if shown:
+                card.blink(1.0)
+        finally:
+            if shown:
+                card.stop()
         window = dkui_bridge.get_persistent_window() if dkui_bridge is not None else None
         if window is not None:
             window.StatusText.Text = u" ".join(messages)
@@ -2918,8 +3043,17 @@ def _execute_pending_placement_from_bridge(uiapp):
         source_cache = {"docs": {}, "memo": {}}
         results = []
         unresolved, swaps = [], []
+        cancelled = False
+        # The "Work in Frogress" card for the whole run: after the dialogs above, when the work really starts; the share of
+        # the apartments placed, then the bedroom check; it is taken down before the dialogs that follow.
+        card = _card()
+        card_shown = _card_start(card)
+        total = max(1, len(request["batch"]))
         try:
-            for single in request["batch"]:
+            for index, single in enumerate(request["batch"]):
+                if card_shown and card.cancel_requested:
+                    cancelled = True                  # (the x on the card: stop between two apartments; what is placed stays)
+                    break
                 results.append(
                     _execute_pending_placement(
                         uiapp, single, quiet=True, source_cache=source_cache
@@ -2928,15 +3062,24 @@ def _execute_pending_placement_from_bridge(uiapp):
                 # One UI-message pump per apartment (instead of several
                 # inside each placement) keeps Revit from looking frozen.
                 apartment_group_placement._pump_ui_messages()
+                if card_shown:
+                    card.blink(_CARD_PLACE_SHARE * (index + 1) / float(total))
 
             # Bedrooms on both sides of a сходово-ліфтовий вузол: apartments
             # the script chose are swapped for others (the user's are not).
-            try:
-                unresolved, swaps = _resolve_bedroom_conflicts(uiapp, request["batch"], source_cache)
-            except Exception:
-                _debug_log("DKUI: перевірка спалень біля вузла не вдалася:\n```\n{}\n```".format(
-                    traceback.format_exc()))
+            if not cancelled:
+                if card_shown:
+                    card.blink(_CARD_PLACE_SHARE)
+                try:
+                    unresolved, swaps = _resolve_bedroom_conflicts(uiapp, request["batch"], source_cache)
+                except Exception:
+                    _debug_log("DKUI: перевірка спалень біля вузла не вдалася:\n```\n{}\n```".format(
+                        traceback.format_exc()))
+                if card_shown:
+                    card.blink(_CARD_BEDROOM_SHARE)
         finally:
+            if card_shown:
+                card.stop()                           # (always: whatever happened, before any dialog)
             for cached_doc in source_cache["docs"].values():
                 try:
                     cached_doc.Close(False)
@@ -2946,12 +3089,15 @@ def _execute_pending_placement_from_bridge(uiapp):
                     )
         placed = len([ok for ok in results if ok])
         summary = u"Розміщено квартир: {} з {}.".format(placed, len(results))
+        if cancelled:
+            summary = (u"Роботу скасовано (хрестик на картці): розміщено квартир {} з {}. Розміщене лишилось, "
+                       u"геометрію не дотягнуто.").format(placed, len(request["batch"]))
         if swaps:
             summary += u"\nЗамінено квартир через спальню біля вузла: {}.".format(len(swaps))
         forms.alert(summary, title="DKUI")
         if unresolved:
             _report_bedroom_conflicts(uiapp, unresolved)
-        if placed:
+        if placed and not cancelled:
             _run_geometry_after_floor(uiapp)         # (after the report: the edits regroup the apartments)
         return
 
@@ -3503,6 +3649,10 @@ _CARD_WIDTH_BY_SIZE = {"s": 160, "m": 230, "l": 300}
 _CARD_COLUMNS_BY_SIZE = {"s": 5, "m": 3, "l": 2}
 
 
+_FIXED_CARD_SIZE = "l"           # two cards in a row
+_FIXED_PAGE_SIZE = 12
+
+
 def _read_filter_state(window):
     """Read the current filter/sort/paging selection straight off the
     window's own native controls - the controls ARE the state, no
@@ -3529,22 +3679,9 @@ def _read_filter_state(window):
     if window.SortComboBox.SelectedItem is not None:
         sort_mode = str(window.SortComboBox.SelectedItem.Tag)
 
-    card_size = "m"
-    for radio, size in (
-        (window.CardSizeSRadio, "s"),
-        (window.CardSizeMRadio, "m"),
-        (window.CardSizeLRadio, "l"),
-    ):
-        if bool(radio.IsChecked):
-            card_size = size
-
-    page_size = 12
-    for radio, size in (
-        (window.PageSize8Radio, 8), (window.PageSize12Radio, 12),
-        (window.PageSize20Radio, 20), (window.PageSize32Radio, 32),
-    ):
-        if bool(radio.IsChecked):
-            page_size = size
+    # The size of the cards and the number on a page have no buttons any more: fixed.
+    card_size = _FIXED_CARD_SIZE
+    page_size = _FIXED_PAGE_SIZE
 
     return {
         "apartmentTypes": apartment_types,
@@ -4559,6 +4696,43 @@ def _wire_tab_overflow(window):
     window.SizeChanged += lambda s, a: _schedule_tab_overflow_update(window)
 
 
+_MANUAL_URL = "https://app.notion.com/p/avrbim/Froglet_-40fba419a45e8064ad65e927f53fd3fe"
+
+
+def _open_manual(url=_MANUAL_URL):
+    """Open the manual in the user's browser."""
+    from System.Diagnostics import Process, ProcessStartInfo
+
+    info = ProcessStartInfo(url)
+    info.UseShellExecute = True
+    Process.Start(info)
+
+
+def _wire_manual_link(window):
+    """"Мануал користування" (bottom left): underlined under the mouse, opens the manual on a click."""
+    def _click(sender, args):
+        args.Handled = True
+        try:
+            _open_manual()
+        except Exception:
+            _debug_log(u"DKUI: мануал не відкрито:\n```\n{}\n```".format(traceback.format_exc()))
+            window.StatusText.Text = u"Не вдалося відкрити мануал: " + _MANUAL_URL
+
+    window.ManualLink.MouseEnter += _on_view_label_enter
+    window.ManualLink.MouseLeave += _on_view_label_leave
+    window.ManualLink.MouseLeftButtonUp += _click
+
+
+def _fit_window_to_screen(window):
+    """The window opens at about 820 x 1000 but never taller than the screen's work area."""
+    from System.Windows import SystemParameters
+
+    try:
+        window.Height = min(window.Height, SystemParameters.WorkArea.Height - 30)
+    except Exception:
+        pass
+
+
 def _wire_caption_buttons(window):
     """Min/max/close for the custom title bar (the tab strip row)."""
     from System.Windows import Thickness, WindowState, SystemParameters
@@ -4589,7 +4763,7 @@ def _wire_caption_buttons(window):
     window.MaximizeButton.Click += _toggle_maximize
     window.CloseWindowButton.Click += _close
     window.StateChanged += _state_changed
-    _state_changed(None, None)        # the window opens maximised (ui.xaml): the padding and the glyph are for that
+    _state_changed(None, None)        # the window opens normal (ui.xaml, about 820 x 1000); this sets the padding and the glyph
 
 
 def _make_close_cross(on_close):
@@ -4680,8 +4854,8 @@ def _stage_expanders(window):
 
 
 def _all_expanders(window):
-    """The rows of the tab, top to bottom: "1. Про скрипт" and the two stages."""
-    return [window.AboutExpander] + _stage_expanders(window)
+    """The rows of the tab, top to bottom: "1. Вибір поверху" and "2. Підбір планувань" (the stages)."""
+    return _stage_expanders(window)
 
 
 def _sync_stage_headers(window):
@@ -4698,9 +4872,10 @@ def _sync_stage_headers(window):
 
 
 def _wire_stage_expanders(window):
-    """One list open at a time (opening one closes the rest) and the grey of the closed ones. "0. Ознайомлення" is open
-    when the window opens (nothing reads the active view then); the stage lists take over when the stage CHANGES
-    (`_follow_stage`), the first stage being the one the window starts at - so the first plan made (or opened) opens "2"."""
+    """One list open at a time (opening one closes the rest) and the grey of the closed ones. "1. Вибір поверху" is open
+    when the window opens (nothing reads the active view then); the second row comes when a plan Froglet made is the
+    active view (`_show_footprint_row`) and opens when the stage CHANGES (`_follow_stage`), the first stage being the one
+    the window starts at - so the first plan made (or opened) opens "2. Підбір планувань"."""
     window._stage = 1
     window._force_stage = False                 # set when the view is opened from "Створені види" (see _open_created_view)
 
@@ -4720,7 +4895,7 @@ def _wire_stage_expanders(window):
     for expander in _all_expanders(window):
         expander.Expanded += _expanded
         expander.Collapsed += _collapsed
-    window.AboutExpander.IsExpanded = True
+    window.ViewCreationExpander.IsExpanded = True          # the first row is open when the script opens
     _sync_stage_headers(window)
 
 
@@ -4736,6 +4911,18 @@ def _follow_bank_tab(window, created):
         _open_bank_tab(window, select=False)
 
 
+def _show_footprint_row(window, created):
+    """"2. Підбір планувань" is not in the window until the active view is a plan Froglet made; when the user leaves such a
+    plan the row goes again (and "1. Вибір поверху" opens if the row was the open one)."""
+    from System.Windows import Visibility
+
+    shown = Visibility.Visible if created else Visibility.Collapsed
+    window.FootprintExpander.Visibility = shown
+    window.StageDivider2.Visibility = shown
+    if not created and window.FootprintExpander.IsExpanded:
+        window.ViewCreationExpander.IsExpanded = True
+
+
 def _follow_stage(window, created, footprint_ids, occupied_ids):
     """Open the list of the stage the user is at - only when the stage CHANGED, so a list the user opened by hand
     stays open until the next change (a plan made or opened, every footprint filled). Never raises."""
@@ -4743,6 +4930,10 @@ def _follow_stage(window, created, footprint_ids, occupied_ids):
         _follow_bank_tab(window, created)
     except Exception:
         _debug_log(u"DKUI: вкладку «Банк квартир» не відкрито:\n```\n{}\n```".format(traceback.format_exc()))
+    try:
+        _show_footprint_row(window, bool(created))
+    except Exception:
+        _debug_log(u"DKUI: рядок «Підбір планувань» не показано:\n```\n{}\n```".format(traceback.format_exc()))
     try:
         stage = _stage_for(created, footprint_ids, occupied_ids)
         previous = getattr(window, "_stage", None)
@@ -5459,9 +5650,9 @@ def show_apartment_selector():
             try:
                 from System.Windows import WindowState
 
-                existing_window.WindowState = WindowState.Maximized      # always the full window
+                existing_window.WindowState = WindowState.Normal         # (it opens at about 820 x 1000, not full screen)
             except Exception as error:
-                _debug_log("DKUI: show_apartment_selector() - could not maximise the reused window: {}".format(error))
+                _debug_log("DKUI: show_apartment_selector() - could not restore the reused window: {}".format(error))
 
             existing_window.Activate()
 
@@ -5514,6 +5705,8 @@ def show_apartment_selector():
             # Permanent tabs: not draggable, but dropping a dragged detail tab
             # on them just clamps it to the first movable slot.
             _wire_caption_buttons(self)
+            _wire_manual_link(self)
+            _fit_window_to_screen(self)
             _wire_tab_overflow(self)
             for permanent in _permanent_tabs(self):
                 permanent.DragOver += make_tab_drag_over(self, permanent)
@@ -5705,11 +5898,13 @@ def show_apartment_selector():
             self._edit_event.Raise()
 
         def _on_auto_pick_plans_click(self, sender, args):
+            self._auto_silent = False
             self._auto_scope = "all"                       # the rest of the footprints: those with no layout confirmed
             if self._floor_auto_event is not None:
                 self._floor_auto_event.Raise()
 
         def _on_auto_pick_chosen_click(self, sender, args):
+            self._auto_silent = False
             self._auto_scope = "chosen"                    # only the footprints chosen on the scheme
             if self._floor_auto_event is not None:
                 self._floor_auto_event.Raise()

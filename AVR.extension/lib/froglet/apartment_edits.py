@@ -86,6 +86,9 @@ def _tidy_room_tags(document, roof_ids, messages):
             for member_id in group.GetMemberIds():
                 if isinstance(document.GetElement(member_id), Room):
                     room_ids.add(member_id.IntegerValue)
+        switched = room_tag_tidy.unify_families(document, room_ids)       # (the same tag families on every apartment)
+        if switched:
+            messages.append(u"Позначки кімнат: приведено до одних сімейств {}.".format(switched))
         changed, skipped = room_tag_tidy.tidy(document, room_ids, (agp._APARTMENT_TAG_TYPE,))
         if changed or skipped:
             messages.append(u"Позначки кімнат: без виносок і по центру кімнат {}{}.".format(
@@ -190,7 +193,18 @@ def _report_unfitted(uiapp, document, messages):
             pass
 
 
-def run_many(uiapp, document, group_ids, keys):
+class Cancelled(BaseException):
+    """The user asked (the x on the "Work in Frogress" card) to stop: raised between two steps only, never inside one. It is not
+    an Exception on purpose: the guards that turn a failed step into a message must not swallow it."""
+
+
+def _tick(progress, name):
+    """Tell `progress` that the step `name` is about to begin; it answers False to stop here."""
+    if progress is not None and progress(name) is False:
+        raise Cancelled()
+
+
+def run_many(uiapp, document, group_ids, keys, progress=None):
     """Run the ticked operations. Without the stair/lift core, "internal_walls"
     and "duplicate_walls" share ONE ungroup / regroup of the picked apartments
     (ungroup, align the walls, delete the duplicates, group again). With the
@@ -201,11 +215,16 @@ def run_many(uiapp, document, group_ids, keys):
     names them and they are picked in Revit."""
     keys = list(keys)
     roof_ids = _picked_roofs(document, group_ids)         # (the wall steps regroup the apartments: find them by footprint)
-    messages = _run_many(uiapp, document, group_ids, [key for key in keys if key not in ("apartment_areas", "floor_slab")])
-    if "apartment_areas" in keys:
-        _run_areas(uiapp, document, messages, group_ids, roof_ids)
-    if "floor_slab" in keys:
-        _run_slab(uiapp, document, messages, roof_ids)
+    try:
+        messages = _run_many(uiapp, document, group_ids, [key for key in keys if key not in ("apartment_areas", "floor_slab")], progress)
+        if "apartment_areas" in keys:
+            _tick(progress, u"apartment_areas")
+            _run_areas(uiapp, document, messages, group_ids, roof_ids)
+        if "floor_slab" in keys:
+            _tick(progress, u"floor_slab")
+            _run_slab(uiapp, document, messages, roof_ids)
+    except Cancelled:
+        return [u"Геометрію не дотягнуто до кінця: роботу скасовано."]
     _tidy_room_tags(document, roof_ids, messages)
     _report_unfitted(uiapp, document, messages)
     try:                       # what the status line says is in the log too (to check a run afterwards)
@@ -217,7 +236,7 @@ def run_many(uiapp, document, group_ids, keys):
     return messages
 
 
-def _run_many(uiapp, document, group_ids, keys):
+def _run_many(uiapp, document, group_ids, keys, progress=None):
     import traceback
 
     try:
@@ -269,17 +288,20 @@ def _run_many(uiapp, document, group_ids, keys):
         )
 
         if align:
+            _tick(progress, u"internal_walls")
             _guard(
                 u"Вирівнювання внутрішніх стін",
                 lambda: duplicate_walls.run(uiapp, document, group_ids, align=True, dedupe=False),
             )
         for key in rest:
+            _tick(progress, key)
             _guard(key, lambda key=key: run(key, uiapp, document, group_ids))
 
         fresh_ids = [
             entry["groupId"] for entry in placed_apartments.live_entries(document)
             if entry.get("roofId") in roof_ids
         ] or list(group_ids)
+        _tick(progress, u"walls_after_core")
         _guard(
             u"Редагування стін після вузла",
             lambda: duplicate_walls.run(
@@ -289,11 +311,13 @@ def _run_many(uiapp, document, group_ids, keys):
 
     if walls_keys or external:
         import duplicate_walls
+        _tick(progress, u"walls")
         _guard(
             u"Редагування стін",
             lambda: duplicate_walls.run(
                 uiapp, document, group_ids, align=align, dedupe=dedupe, external=external),
         )
     for key in rest:
+        _tick(progress, key)
         _guard(key, lambda key=key: run(key, uiapp, document, group_ids))
     return messages

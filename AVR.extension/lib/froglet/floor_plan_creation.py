@@ -29,7 +29,6 @@ from Autodesk.Revit.DB import (
     ViewPlan,
 )
 from System.Collections.Generic import List
-from Autodesk.Revit.UI import TaskDialog
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 
 try:
@@ -58,6 +57,14 @@ class _RoofSelectionFilter(ISelectionFilter):
 
     def AllowReference(self, reference, position):
         return True
+
+
+def _notify(title, text):
+    """Our own message: pyRevit's alert, not a Revit TaskDialog (a TaskDialog is answered by itself while a Froglet event runs:
+    revit_quiet)."""
+    from pyrevit import forms
+
+    forms.alert(text, title=title)
 
 
 def _element_name(element):
@@ -625,7 +632,7 @@ def create_typical_floor_plan(uiapp):
     level = _roof_level(document, roof) if roof is not None else None
 
     if level is None:
-        TaskDialog.Show(_TITLE, u"Не вдалося визначити поверх обраного елемента.")
+        _notify(_TITLE, u"Не вдалося визначити поверх обраного елемента.")
         return
 
     floor_plan_type = None
@@ -635,7 +642,7 @@ def create_typical_floor_plan(uiapp):
             break
 
     if floor_plan_type is None:
-        TaskDialog.Show(_TITLE, u"У проєкті немає типу виду «План поверху».")
+        _notify(_TITLE, u"У проєкті немає типу виду «План поверху».")
         return
 
     view_template = _find_view_template(document)
@@ -682,7 +689,7 @@ def create_typical_floor_plan(uiapp):
             pass
     except Exception as error:
         transaction.RollBack()
-        TaskDialog.Show(_TITLE, u"Не вдалося створити план: {}".format(error))
+        _notify(_TITLE, u"Не вдалося створити план: {}".format(error))
         return
 
     try:

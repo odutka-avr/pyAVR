@@ -43,12 +43,38 @@ class BackendError(Exception):
         self.status = status             # the HTTP status, when there was one
 
 
+try:
+    _TEXT = unicode                     # IronPython 2.7
+except NameError:
+    _TEXT = str                         # CPython 3
+
+
+def describe(error):
+    """The text of an exception as unicode, whatever it holds: a network error on a Windows with another language
+    carries its message in the system code page (bytes IronPython cannot turn into text by itself), and formatting
+    it straight into a message raised a UnicodeDecodeError that hid the real reason."""
+    for convert in (_TEXT, str, repr):
+        try:
+            text = convert(error)
+        except Exception:
+            continue
+        if isinstance(text, bytes):
+            for codec in ("utf-8", "cp1251", "cp1252"):
+                try:
+                    return text.decode(codec)
+                except Exception:
+                    continue
+            return text.decode("ascii", "replace")
+        return text
+    return u"?"
+
+
 # ------------------------------------------------------------ configuration
 
 def base_url():
     url = (os.environ.get("FROGLET_BACKEND_URL") or froglet_settings.get("backend_url")).strip().rstrip("/")
     if not url:
-        raise BackendUnavailable(u"У settings.txt не вказано backend_url.")
+        raise BackendUnavailable(u"У settings.txt не вказано backend_url.\n\n{}".format(froglet_settings.status()))
     return url
 
 
@@ -78,18 +104,18 @@ def _request(method, path, payload=None, timeout=CALL_TIMEOUT_SECONDS):
         try:
             detail = error.read().decode("utf-8", "replace")
         except Exception:
-            detail = ""
+            detail = u""
         if error.code == 401:
             raise BackendError(u"Сервер не прийняв токен (backend_token у settings.txt): {}".format(url), 401)
         if error.code >= 500 and error.code not in (500, 501):
-            raise BackendUnavailable("{} {}".format(error.code, url))
-        raise BackendError("{} {} {}".format(error.code, url, detail[:300]), error.code)
+            raise BackendUnavailable(u"{} {}".format(error.code, url))
+        raise BackendError(u"{} {} {}".format(error.code, url, detail[:300]), error.code)
     except (URLError, socket.error, socket.timeout, OSError) as error:
-        raise BackendUnavailable("{}: {}".format(url, error))
+        raise BackendUnavailable(u"{}: {}".format(url, describe(error)))
     try:
         return json.loads(body.decode("utf-8"))
     except ValueError as error:
-        raise BackendError("bad JSON from {}: {}".format(url, error))
+        raise BackendError(u"bad JSON from {}: {}".format(url, describe(error)))
 
 
 def post(path, payload, timeout=CALL_TIMEOUT_SECONDS):

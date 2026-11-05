@@ -67,7 +67,92 @@ def room_centre(points, fallback=None):
     return fallback
 
 
+# The families the room tags and the apartment tag of a placed apartment must come from. The apartment files bring their own
+# tag families, and some of them were drawn with the project's older ones (...ОднеЗначення2, ...Квартира нова): a type of
+# the same name, but another text colour (blue) and no frame on the apartment tag. Such tags are switched to these.
+CANONICAL_TAG_FAMILIES = (u"AVR_Марка_Приміщення_ОднеЗначення1", u"AVR_Марка_Приміщення_Квартира2")
+
+
+def pick_canonical_types(types, families=CANONICAL_TAG_FAMILIES):
+    """{type name: type id} of the tag types that belong to the canonical `families`;
+    `types` = [(type id, family name, type name)]. The first one of a name wins."""
+    chosen = {}
+    for type_id, family_name, type_name in types:
+        if family_name in families and type_name not in chosen:
+            chosen[type_name] = type_id
+    return chosen
+
+
 # ------------------------------------------------------------------ Revit side
+
+def unify_families(document, room_ids, families=CANONICAL_TAG_FAMILIES):
+    """Switch every room tag of the rooms `room_ids` whose type has a twin of the same name in a canonical family to
+    that twin (nothing when the canonical families are not in the project). Returns how many tags were switched."""
+    from Autodesk.Revit.DB import BuiltInCategory, FilteredElementCollector, Transaction
+    from Autodesk.Revit.DB.Architecture import RoomTag
+    import apartment_group_placement as agp
+
+    collector = FilteredElementCollector(document).OfCategory(BuiltInCategory.OST_RoomTags)
+    types = [(t.Id, getattr(t, "FamilyName", u""), agp._element_name(t)) for t in collector.WhereElementIsElementType()]
+    canonical = pick_canonical_types(types, families)
+    if not canonical:
+        return 0
+
+    wanted = set(room_ids)
+    todo = []                                         # (the transaction is only opened when there is something to switch)
+    for tag in list(FilteredElementCollector(document).OfCategory(BuiltInCategory.OST_RoomTags).WhereElementIsNotElementType()):
+        try:
+            if not isinstance(tag, RoomTag):
+                continue
+            room = tag.Room
+            if room is None or room.Id.IntegerValue not in wanted:
+                continue
+            target = canonical.get(agp._element_name(document.GetElement(tag.GetTypeId())))
+            if target is not None and tag.GetTypeId() != target:
+                todo.append((tag, target))
+        except Exception:
+            continue
+    if not todo:
+        return 0
+
+    own = not document.IsModifiable
+    transaction = Transaction(document, u"Room tags: one family") if own else None
+    if own:
+        transaction.Start()
+    switched = 0
+    try:
+        for tag, target in todo:
+            try:
+                tag.ChangeTypeId(target)
+                switched += 1
+            except Exception:
+                continue
+        if own:
+            transaction.Commit()
+    except Exception:
+        if own and transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
+        raise
+    return switched
+
+
+def unify_placed(document):
+    """unify_families for the rooms of every apartment Froglet has placed in the project (run after each placement, so the tags are
+    right at once, whatever the apartment's file brought). Returns how many tags were switched."""
+    import placed_apartments
+    from Autodesk.Revit.DB import ElementId
+    from Autodesk.Revit.DB.Architecture import Room
+
+    room_ids = set()
+    for entry in placed_apartments.live_entries(document):
+        group = document.GetElement(ElementId(int(entry["groupId"])))
+        if group is None:
+            continue
+        for member_id in group.GetMemberIds():
+            if isinstance(document.GetElement(member_id), Room):
+                room_ids.add(member_id.IntegerValue)
+    return unify_families(document, room_ids) if room_ids else 0
+
 
 def _outline(room):
     """The room's outer boundary as [(x, y)] feet, or None (an unenclosed room has none)."""

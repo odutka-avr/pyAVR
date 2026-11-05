@@ -92,8 +92,21 @@ if __name__ == "__main__":
         try:
             backend_api.check()
         except Exception as error:
+            text = backend_api.describe(error)
+            if not isinstance(error, backend_api.BackendUnavailable):
+                # (not a network answer: a bug or a broken file - where it happened, so that it can be found; the frames only,
+                # the text of such an error may be the very thing that cannot be turned into text)
+                try:
+                    import os
+                    import sys
+                    import traceback
+                    frames = traceback.extract_tb(sys.exc_info()[2])[-4:]
+                    text += u"\n\n" + u"\n".join(
+                        u"{}:{} {}".format(os.path.basename(frame[0]), frame[1], frame[2]) for frame in frames)
+                except Exception:
+                    pass
             forms.alert(
-                u"Сервер Froglet недоступний, а без нього ця версія не працює.\n\n{}".format(error),
+                u"Сервер Froglet недоступний, а без нього ця версія не працює.\n\n{}".format(text),
                 title=u"Froglet",
             )
         else:

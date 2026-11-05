@@ -2,19 +2,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Froglet"
-        Height="860" Width="1440"
-        MinHeight="520" MinWidth="820"
+        Height="1000" Width="760"
+        MinHeight="520" MinWidth="700"
         WindowStartupLocation="CenterScreen"
-        WindowState="Maximized"
+        WindowState="Normal"
+        UseLayoutRounding="True"
         ShowInTaskbar="True"
         FontFamily="Roboto Condensed, Segoe UI"
+        BorderBrush="#555B63" BorderThickness="1"
         Background="White">
 
     <!-- Custom title bar: the tab strip row IS the caption (draggable, double-
          click maximises); min/max/close are drawn by this window itself (see
          CaptionButtonsPanel) instead of the system title bar above the tabs. -->
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="46" GlassFrameThickness="0" CornerRadius="0"
+        <shell:WindowChrome CaptionHeight="41" GlassFrameThickness="0" CornerRadius="0"
                             UseAeroCaptionButtons="False"
                             ResizeBorderThickness="{x:Static SystemParameters.WindowResizeBorderThickness}" />
     </shell:WindowChrome.WindowChrome>
@@ -81,9 +83,9 @@
 
         <!-- Pill-style toggle used for apartment-type / window-placement / added-part filters -->
         <Style x:Key="FilterToggleStyle" TargetType="ToggleButton">
-            <Setter Property="Margin" Value="0,0,10,8" />
-            <Setter Property="Padding" Value="8,5" />
-            <Setter Property="MinWidth" Value="64" />
+            <Setter Property="Margin" Value="0,0,6,8" />
+            <Setter Property="Padding" Value="6,5" />
+            <Setter Property="MinWidth" Value="48" />
             <Setter Property="Background" Value="#FFFFFF" />
             <Setter Property="BorderBrush" Value="{StaticResource AvrLineStrongBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -739,6 +741,10 @@
     </Window.Resources>
 
     <Grid x:Name="RootContentGrid">
+    <!-- Everything a little smaller (the window opens at about 820 x 1000). -->
+    <Grid.LayoutTransform>
+        <ScaleTransform ScaleX="0.88" ScaleY="0.88" />
+    </Grid.LayoutTransform>
     <TabControl x:Name="MainTabControl" Background="White" BorderThickness="0" Padding="0">
     <TabControl.Template>
         <ControlTemplate TargetType="TabControl">
@@ -773,9 +779,9 @@
     </TabItem.Header>
     <Grid Margin="10">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="LeftColumnDefinition" Width="380" MinWidth="260" />
+            <ColumnDefinition x:Name="LeftColumnDefinition" Width="300" MinWidth="220" />
             <ColumnDefinition Width="6" />
-            <ColumnDefinition Width="*" MinWidth="420" />
+            <ColumnDefinition Width="*" MinWidth="380" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <!-- Shared title row - Auto height takes the MAX of both
@@ -789,7 +795,7 @@
 
         <!-- ============ TITLES (same row, both columns) ============ -->
         <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,14">
-            <TextBlock Text="Налаштування параметрів" Style="{StaticResource ColumnTitleStyle}" />
+            <TextBlock Text="Налаштування параметрів" Style="{StaticResource ColumnTitleStyle}" TextWrapping="Wrap" />
             <TextBlock Text="Параметри квартир" Style="{StaticResource ColumnSubtitleStyle}" />
         </StackPanel>
 
@@ -867,7 +873,7 @@
                              exactly the same width and stretch edge-to-edge,
                              instead of each auto-sizing to its own label's
                              length ("Наскрізне" wider than "Рядове"). -->
-                        <UniformGrid Columns="4">
+                        <UniformGrid Columns="2">
                             <ToggleButton x:Name="WPRToggle" Tag="R" Content="Рядове" Style="{StaticResource FilterToggleStyle}" />
                             <ToggleButton x:Name="WPCToggle" Tag="C" Content="Кутове" Style="{StaticResource FilterToggleStyle}" />
                             <ToggleButton x:Name="WPLToggle" Tag="L" Content="Наскрізне" Style="{StaticResource FilterToggleStyle}" />
@@ -950,17 +956,12 @@
                  both sources of drift, so "Сортування:" lines up with
                  "Тип квартири" exactly, not approximately). -->
             <Border x:Name="ToolbarBorder" Grid.Row="0" Padding="0,12,0,8">
-              <Grid VerticalAlignment="Top">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+              <!-- A WrapPanel: in a narrow window the groups go to the next line instead of lying over each other. -->
+              <WrapPanel VerticalAlignment="Top">
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Top">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,14,6">
                     <TextBlock Text="Сортування:" VerticalAlignment="Top" Margin="0,4,6,0" />
-                    <ComboBox x:Name="SortComboBox" Width="280" VerticalAlignment="Top">
+                    <ComboBox x:Name="SortComboBox" Width="240" VerticalAlignment="Top">
                         <ComboBoxItem Tag="area-asc" Content="За площею від найменшого до найбільшого" />
                         <ComboBoxItem Tag="area-desc" Content="За площею від найбільшого до найменшого" />
                         <ComboBoxItem Tag="type-asc" Content="За типом від найменшого до найбільшого" />
@@ -969,21 +970,24 @@
                     </ComboBox>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0">
+                <!-- "Розмір" and "На сторінці" have no buttons any more (fixed: `_FIXED_CARD_SIZE`, `_FIXED_PAGE_SIZE`); the radios stay for the code, hidden. -->
+                <StackPanel Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Розмір:" VerticalAlignment="Top" Margin="0,4,6,0" />
                     <RadioButton x:Name="CardSizeSRadio" GroupName="CardSize" Tag="s" Content="S" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                     <RadioButton x:Name="CardSizeMRadio" GroupName="CardSize" Tag="m" Content="M" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                     <RadioButton x:Name="CardSizeLRadio" GroupName="CardSize" Tag="l" Content="L" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
+                <StackPanel Orientation="Horizontal">
                     <TextBlock Text="На сторінці:" VerticalAlignment="Top" Margin="0,4,6,0" />
                     <RadioButton x:Name="PageSize8Radio" GroupName="PageSize" Tag="8" Content="8" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                     <RadioButton x:Name="PageSize12Radio" GroupName="PageSize" Tag="12" Content="12" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                     <RadioButton x:Name="PageSize20Radio" GroupName="PageSize" Tag="20" Content="20" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                     <RadioButton x:Name="PageSize32Radio" GroupName="PageSize" Tag="32" Content="32" Style="{StaticResource PickerRadioStyle}" VerticalAlignment="Top" />
                 </StackPanel>
-              </Grid>
+                </StackPanel>
+              </WrapPanel>
             </Border>
 
             <!-- Apartment grid - UniformGrid (not WrapPanel) so the
@@ -1011,12 +1015,17 @@
                  rather than separate columns, so the centering doesn't
                  depend on how wide the other two happen to be. -->
             <Grid Grid.Row="2" Margin="0,8,0,0">
-                <StackPanel x:Name="PaginationPanel" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                <TextBlock x:Name="PageCountText" HorizontalAlignment="Center" VerticalAlignment="Center"
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel x:Name="PaginationPanel" Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                <TextBlock x:Name="PageCountText" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="8,0"
                            Foreground="#5C636B" FontSize="12" />
-                <Button x:Name="RunButton" Content="Запустити"
+                <Button x:Name="RunButton" Grid.Column="2" Content="Запустити"
                         Style="{StaticResource PrimaryActionButtonStyle}"
-                        MinWidth="130" Padding="18,9"
+                        MinWidth="110" Padding="14,9"
                         HorizontalAlignment="Right" VerticalAlignment="Center" />
             </Grid>
 
@@ -1039,56 +1048,16 @@
         </Grid.RowDefinitions>
         <!-- Three rows, one under the other (they were three columns); each is a drop-down list: its title
              and subtitle are the header, its buttons and lists are inside. Closed at first. -->
-        <ScrollViewer Grid.Row="0" Style="{StaticResource ThinScrollViewerStyle}" VerticalScrollBarVisibility="Auto" Margin="14,0,14,14">
+        <ScrollViewer Grid.Row="0" Style="{StaticResource ThinScrollViewerStyle}" VerticalScrollBarVisibility="Auto" Margin="2,0,14,14">
         <StackPanel>
-            <!-- 0. Ознайомлення: what the script is for (a list with bullets); the button beside the second item opens the "Банк квартир" tab.
-                 Open when the window opens (_wire_stage_expanders). -->
-            <Expander x:Name="AboutExpander" Style="{StaticResource SectionExpanderStyle}" IsExpanded="False">
-                <Expander.Header>
-                    <StackPanel>
-                        <TextBlock Text="1. Про скрипт" Style="{StaticResource ColumnTitleStyle}" />
-                        <TextBlock Text="Можливості та результат" TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,3,0,0" />
-                    </StackPanel>
-                </Expander.Header>
-            <!-- The list stands farther from the subtitle (14) than its items from each other (10). -->
-            <StackPanel Margin="28,14,0,24">
-                <Grid Margin="0,0,0,10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="20" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Ellipse Grid.Column="0" Width="4" Height="4" Margin="2,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"
-                             Fill="{StaticResource AvrTextMutedBrush}" />
-                    <TextBlock Grid.Column="1" Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center"
-                               Text="Швидке розпланування поділеної на плями квартир посадки Tadpole готовими плануваннями квартир." />
-                </Grid>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="20" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Ellipse Grid.Column="0" Width="4" Height="4" Margin="2,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"
-                             Fill="{StaticResource AvrTextMutedBrush}" />
-                    <!-- The button stands right after the text (and under it when the window is too narrow for both). -->
-                    <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Style="{StaticResource BodyTextStyle}" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="0,0,14,0"
-                                   Text="Для ознайомлення з готовими плануваннями натисніть на кнопку" />
-                        <Button x:Name="OpenBankButton" Content="Банк квартир"
-                                Style="{StaticResource FlashActionButtonStyle}"
-                                Padding="18,9" VerticalAlignment="Center" />
-                    </WrapPanel>
-                </Grid>
-            </StackPanel>
-            </Expander>
-            <Border Height="1" Background="#C8CBCF" Margin="0,22,0,22" />
             <Expander x:Name="ViewCreationExpander" Style="{StaticResource SectionExpanderStyle}" IsExpanded="False">
                 <Expander.Header>
                     <StackPanel>
-                        <TextBlock Text="2. Вибір поверху" Style="{StaticResource ColumnTitleStyle}" />
-                        <TextBlock Text="Виберіть roof на рівні якого знаходиться поверх, який ви хочете розпланувати, та виберіть геометрію яку будете розплановувати та підтвердьте натиснувши finish зверху зліва в Revit." TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,3,0,0" />
+                        <TextBlock Text="1. Вибір поверху" Style="{StaticResource ColumnTitleStyle}" />
+                        <TextBlock Text="Виберіть roof на рівні якого знаходиться поверх, який ви хочете розпланувати, та виберіть геометрію яку будете розплановувати та підтвердьте натиснувши finish зверху зліва в Revit." TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,9,0,0" />
                     </StackPanel>
                 </Expander.Header>
-            <StackPanel Margin="28,6,0,24">
+            <StackPanel Margin="18,6,0,24">
                 <!-- Not used for now: hidden (its handler _on_sections_click / _choose_sections stay in the script). -->
                 <Button x:Name="SelectSectionsButton" Content="Вибір секцій для розпланування"
                         Style="{StaticResource FlashActionButtonStyle}"
@@ -1116,15 +1085,16 @@
             </StackPanel>
 
             </Expander>
-            <Border Height="1" Background="#C8CBCF" Margin="0,22,0,22" />
-            <Expander x:Name="FootprintExpander" Style="{StaticResource SectionExpanderStyle}" IsExpanded="False">
+            <!-- "2. Підбір планувань" is not in the window until the active view is a plan Froglet made (`_show_footprint_row`). -->
+            <Border x:Name="StageDivider2" Height="1" Background="#C8CBCF" Margin="0,22,0,22" Visibility="Collapsed" />
+            <Expander x:Name="FootprintExpander" Style="{StaticResource SectionExpanderStyle}" IsExpanded="False" Visibility="Collapsed">
                 <Expander.Header>
                     <StackPanel>
-                        <TextBlock Text="3. Підбір планувань" Style="{StaticResource ColumnTitleStyle}" />
-                        <TextBlock Text="Заповнення плану поверху готовими рішеннями квартир" TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,3,0,0" />
+                        <TextBlock Text="2. Підбір планувань" Style="{StaticResource ColumnTitleStyle}" />
+                        <TextBlock Text="Заповнення плану поверху готовими рішеннями квартир" TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,9,0,0" />
                     </StackPanel>
                 </Expander.Header>
-            <StackPanel Margin="28,6,0,24">
+            <StackPanel Margin="18,6,0,24">
                 <!-- The scheme of the active floor (floor_scheme.py): every footprint with its type, area and nominal sizes;
                      a click chooses it. "Не відкрито жодного виду" when no plan Froglet made is open. -->
                 <StackPanel x:Name="AvailableGroupsPanel">
@@ -1136,7 +1106,7 @@
                         <Ellipse Grid.Column="0" Width="4" Height="4" Margin="2,8,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
                                  Fill="{StaticResource AvrTextMutedBrush}" />
                         <TextBlock Grid.Column="1" Style="{StaticResource BodyTextStyle}"
-                                   Text="Вибравши пляму квартири перейдіть у вкладку Банк квартир, що відкрилась, та виберіть планування або віддайте вибір планування скрипту через кнопку автоматичного розпланування та для запуску скрипта натисніть на кнопку Запустити справа знизу." />
+                                   Text="Щоб змінити автоматично вибрані планування - натисніть на хрестик біля назви планування або виберіть пляму та натисніть на Очистити. Для самостійного вибору планування оберіть пляму та перейдіть у вкладку Банк квартир. Після закінчення розпланування натисніть кнопку Запустити справа знизу." />
                     </Grid>
                     <!-- Three columns with a divider between them: the scheme | the buttons | the types (a circle of the group's colour and
                          what the group is; the footprints of the group have that colour on the scheme). No scroll bar: the scheme is
@@ -1150,28 +1120,34 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <ItemsControl Grid.Column="0" x:Name="AvailableGroupsList" />
-                        <Border x:Name="SchemeDividerLeft" Grid.Column="1" Width="1" Background="#C8CBCF" Margin="18,0,0,0" />
-                        <!-- The buttons (their top margin is set from code to the top edge of the plan: `_draw_scheme`). "Автоматичний вибір планування
-                             для решти плям" is always there (every footprint with no layout confirmed); the others only while footprints are
-                             chosen: "Автоматичний вибір планувань" (the chosen ones only), "Вибрати решту плям цього типу", and - when a
-                             footprint that already has its layout is chosen - "Очистити". -->
-                        <StackPanel x:Name="SchemeSidePanel" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="18,0,0,0">
-                            <!-- (a wider gap under it: the buttons below it come only while footprints are chosen) -->
-                            <Button x:Name="AutoPickPlansButton" Content="Автоматичний вибір планування для решти плям"
-                                    Style="{StaticResource FlashActionButtonStyle}" Padding="18,9"
-                                    HorizontalAlignment="Stretch" Margin="0,0,0,32" />
-                            <Button x:Name="AutoPickChosenButton" Content="Автоматичний вибір планувань"
-                                    Style="{StaticResource FlashActionButtonStyle}" Padding="18,9"
-                                    HorizontalAlignment="Stretch" Margin="0,0,0,10" Visibility="Collapsed" />
-                            <Button x:Name="SelectTypeButton" Content="Вибрати решту плям цього типу"
-                                    Style="{StaticResource FlashActionButtonStyle}" Padding="18,9"
-                                    HorizontalAlignment="Stretch" Margin="0,0,0,10" Visibility="Collapsed" />
-                            <Button x:Name="ClearChoiceButton" Content="Очистити"
-                                    Style="{StaticResource FlashActionButtonStyle}" Padding="18,9"
-                                    HorizontalAlignment="Stretch" Margin="0,0,0,10" Visibility="Collapsed" />
+                        <Border x:Name="SchemeDividerLeft" Grid.Column="1" Width="1" Background="#C8CBCF" Margin="12,0,0,0" />
+                        <!-- The buttons (their top margin is set from code to the top edge of the plan: `_draw_scheme`; their text wraps).
+                             "Автоматичний вибір планувань для решти плям" is always there (every footprint with no layout confirmed); the others
+                             only while footprints are chosen: "Автоматичний вибір планувань" (the chosen ones only), "Вибрати решту плям цього
+                             типу", and - when a footprint that already has its layout is chosen - "Очистити". -->
+                        <StackPanel x:Name="SchemeSidePanel" Grid.Column="2" Width="170" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,0,0,0">
+                            <TextBlock Text="Параметри вибору:" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,0,0,12" />
+                            <Button x:Name="AutoPickPlansButton" Style="{StaticResource FlashActionButtonStyle}" Padding="10,8"
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,10">
+                                <TextBlock Text="Автоматичний вибір планувань для решти плям" TextWrapping="Wrap" TextAlignment="Center" />
+                            </Button>
+                            <Button x:Name="AutoPickChosenButton" Style="{StaticResource FlashActionButtonStyle}" Padding="10,8"
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,10" Visibility="Collapsed">
+                                <TextBlock Text="Автоматичний вибір планувань" TextWrapping="Wrap" TextAlignment="Center" />
+                            </Button>
+                            <Button x:Name="SelectTypeButton" Style="{StaticResource FlashActionButtonStyle}" Padding="10,8"
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,10" Visibility="Collapsed">
+                                <TextBlock Text="Вибрати решту плям цього типу" TextWrapping="Wrap" TextAlignment="Center" />
+                            </Button>
+                            <Button x:Name="ClearChoiceButton" Style="{StaticResource FlashActionButtonStyle}" Padding="10,8"
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,10" Visibility="Collapsed">
+                                <TextBlock Text="Очистити" TextWrapping="Wrap" TextAlignment="Center" />
+                            </Button>
+                            <!-- Shown when no button is: nothing is left to choose. -->
+                            <TextBlock x:Name="SchemeSideEmpty" Text="Всі плями вже розплановані" Style="{StaticResource BodyTextStyle}" Visibility="Collapsed" />
                         </StackPanel>
-                        <Border x:Name="SchemeDividerRight" Grid.Column="3" Width="1" Background="#C8CBCF" Margin="18,0,0,0" />
-                        <StackPanel x:Name="SchemeTypesPanel" Grid.Column="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="18,0,0,0" Visibility="Collapsed">
+                        <Border x:Name="SchemeDividerRight" Grid.Column="3" Width="1" Background="#C8CBCF" Margin="16,0,0,0" />
+                        <StackPanel x:Name="SchemeTypesPanel" Grid.Column="4" Width="170" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16,0,0,0" Visibility="Collapsed">
                             <TextBlock Text="Квартири за типами:" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,0,0,12" />
                             <ItemsControl x:Name="SchemeTypesList" />
                         </StackPanel>
@@ -1187,10 +1163,10 @@
                 <Expander.Header>
                     <StackPanel>
                         <TextBlock Text="3. Редагування геометрії" Style="{StaticResource ColumnTitleStyle}" />
-                        <TextBlock Text="Дотягнення геометрії квартири до меж плями" TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,3,0,0" />
+                        <TextBlock Text="Дотягнення геометрії квартири до меж плями" TextWrapping="Wrap" Style="{StaticResource ColumnSubtitleStyle}" Margin="0,9,0,0" />
                     </StackPanel>
                 </Expander.Header>
-            <StackPanel Margin="28,6,0,24" Grid.IsSharedSizeScope="True">
+            <StackPanel Margin="18,6,0,24" Grid.IsSharedSizeScope="True">
                 <Grid Margin="0,10,0,14">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="20" />
@@ -1236,6 +1212,14 @@
             </Expander>
         </StackPanel>
         </ScrollViewer>
+        <!-- In the top right corner of the tab: opens the "Банк квартир" tab. -->
+        <Button x:Name="OpenBankButton" Grid.Row="0" Content="Ознайомитись з банком квартир"
+                Style="{StaticResource ChooseTextButtonStyle}" Foreground="#171C21" FontSize="12" Padding="8,5"
+                shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,26,0" />
+        <!-- Bottom left: the manual (opens in the browser; wired in `_wire_manual_link`). -->
+        <TextBlock x:Name="ManualLink" Grid.Row="1" Text="Мануал користування" Style="{StaticResource BodyTextStyle}"
+                   Cursor="Hand" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,8,0,22" />
         <!-- "2" open: appears as soon as one footprint has its apartment (nothing is placed until it is pressed). -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
             <Button x:Name="FloorRunButton" Content="Запустити"
