@@ -5,6 +5,10 @@ from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, Element, ExportRange, FamilyInstance,
     FilteredElementCollector, FitDirectionType, ImageExportOptions, ImageResolution, ImageType,
     StorageType, Transaction, View, ViewType, ZoomFitType)
+try:
+    from Autodesk.Revit.UI import ThinLinesOptions
+except ImportError:
+    ThinLinesOptions = None
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -16,7 +20,7 @@ NAME_MASK = u"Перемички"                    # назва сімейст
 LEGEND_PREFIX = u"О_Ескіз перемички_"       # + Type Mark (або Type Name)
 TYPE_MARK_NAMES = (u"Type Mark", u"Марка типу", u"Маркировка типоразмера")
 P_IMAGE = u"Схема перемички"                # проєктний параметр ТИПУ для зображення; якщо немає - Image екземплярів
-IMAGE_PX = 1200                            # ширина зображення для Image, пікселі
+IMAGE_PX = 1000                            # ширина зображення для Image, пікселі
 
 
 # ---------------- Допоміжні ----------------
@@ -190,6 +194,15 @@ def set_images(pairs, log):
     done = []
     original = uidoc.ActiveView
     open_before = set(id_key(uv.ViewId) for uv in uidoc.GetOpenUIViews())
+    # Тонкі лінії (Thin Lines увімкнені) на час збереження; потім - як було
+    thin_before = None
+    if ThinLinesOptions is not None:
+        try:
+            thin_before = ThinLinesOptions.AreThinLinesEnabled
+            if not thin_before:
+                ThinLinesOptions.AreThinLinesEnabled = True
+        except Exception as ex:
+            log.append(u"Не вдалося увімкнути Thin Lines: {}".format(ex))
     try:
         for view, file_base, syms in pairs:
             who = u", ".join(get_name(s) for s in syms)
@@ -256,6 +269,11 @@ def set_images(pairs, log):
             except Exception as ex:
                 log.append(u"{} - не вдалося записати Image: {}".format(who, ex))
     finally:
+        if thin_before is False:
+            try:
+                ThinLinesOptions.AreThinLinesEnabled = False
+            except Exception:
+                pass
         try:
             uidoc.ActiveView = original
         except Exception:
