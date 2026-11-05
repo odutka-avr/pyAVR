@@ -14,6 +14,7 @@ except ImportError:
     RadialDimension = None
 from System.Collections.Generic import List
 import math
+import re
 
 import clr
 clr.AddReference("PresentationFramework")
@@ -46,6 +47,9 @@ DEFAULT_OFFSET_MM = 8.0                     # відступ розмірів/т
 GAP_TEXT_SHIFT_MM = 4.0                     # текст розміру проміжку - правіше його правої виносної лінії, мм аркуша
 REBAR_MASK = u"Арм"                         # сімейство вкладеного "1ПР" з цим у назві - арматура, а не БП
 REBAR_RADIUS_MM = 8.0                       # радіус кола для арматури, мм моделі
+LABEL_NAMES = u"Назви перемичок"            # варіанти текстового позначення над штриховками
+LABEL_MARK = u"Type Mark AVR_Перемички"
+LABEL_MODES = (LABEL_NAMES, LABEL_MARK)
 
 
 # ---------------- Допоміжні ----------------
@@ -150,6 +154,13 @@ def type_mark(sym):
 
 def mark_or_name(sym):
     return type_mark(sym) or get_name(sym)
+
+
+def mark_number(mark):
+    """Позначення після літер і символів: "ПР-1" -> "1", "ПР-12а" -> "12а".
+    Якщо цифр немає - весь Type Mark."""
+    m = re.search(u"\\d.*$", mark, re.UNICODE)
+    return m.group(0) if m else mark
 
 
 def unique_name(base, existing):
@@ -380,7 +391,7 @@ def make_dim(view, refs, p1, p2, dim_type):
     return doc.Create.NewDimension(view, line, ra, dim_type)
 
 
-def build_legend(template, view_name, n, nested_name, w, h, rebar, offset_mm, fr_type, tn_type, dim_type):
+def build_legend(template, view_name, n, label_text, side_label, w, h, rebar, offset_mm, fr_type, tn_type, dim_type):
     # 6. Копія першої легенди, очищена від усіх елементів
     view = doc.GetElement(template.Duplicate(ViewDuplicateOption.Duplicate))
     view.Name = view_name
@@ -409,7 +420,10 @@ def build_legend(template, view_name, n, nested_name, w, h, rebar, offset_mm, fr
     else:
         add_rect_dims(view, regions, n, w, h, gap, off, s, dim_type)
 
-    add_label(view, regions, n, nested_name, w, h, gap, off, tn_type)
+    if side_label:
+        add_side_label(view, regions, n, label_text, w, h, gap, off, tn_type)
+    else:
+        add_label(view, regions, n, label_text, w, h, gap, off, tn_type)
     return view
 
 
@@ -462,10 +476,10 @@ def add_rect_dims(view, regions, n, w, h, gap, off, s, dim_type):
     make_dim(view, [bottom, top], to_view(view, -off, 0), to_view(view, -off, h), dim_type)
 
 
-def set_bottom_attachment(note):
-    """Прив'язка виносок Bottom Left / Bottom Right. У Revit 2023 це параметри екземпляра
-    тексту (властивостей LeftAttachment/RightAttachment у TextNote немає)."""
-    bottom = int(LeaderAtachement.BottomLine)     # так, "Atachement" - назва з API
+def set_bottom_attachment(note, where=None):
+    """Прив'язка виносок Bottom Left / Bottom Right (або інша - where). У Revit 2023 це параметри
+    екземпляра тексту (властивостей LeftAttachment/RightAttachment у TextNote немає)."""
+    bottom = int(where if where is not None else LeaderAtachement.BottomLine)   # "Atachement" - назва з API
     for bip_name, names in (("LEADER_LEFT_ATTACHMENT", (u"Left Attachment", u"Прив'язка зліва")),
                             ("LEADER_RIGHT_ATTACHMENT", (u"Right Attachment", u"Прив'язка справа"))):
         p = None
@@ -482,13 +496,13 @@ def set_bottom_attachment(note):
             pass                                      # не критично - лишається прив'язка за замовчуванням
 
 
-def add_label(view, regions, n, nested_name, w, h, gap, off, tn_type):
+def add_label(view, regions, n, label_text, w, h, gap, off, tn_type):
     # 8. Текст безпосередньо над штриховками, по центру всієї групи
     total_w = n * w + (n - 1) * gap
     opts = TextNoteOptions(tn_type.Id)
     opts.HorizontalAlignment = HorizontalTextAlignment.Center
     note = TextNote.Create(doc, view.Id, to_view(view, total_w / 2.0, h + off),
-                           lintel_label(n, nested_name), opts)
+                           label_text, opts)
     doc.Regenerate()
     # Точка вставки тексту - верх; опускаємо так, щоб низ тексту був на відступі над штриховкою
     bb = note.get_BoundingBox(view)
@@ -508,6 +522,35 @@ def add_label(view, regions, n, nested_name, w, h, gap, off, tn_type):
             else TextNoteLeaderTypes.TNLT_STRAIGHT_R
         ld = note.AddLeader(side)
         ld.End = to_view(view, cx, h)
+
+
+def add_side_label(view, regions, n, label_text, w, h, gap, off, tn_type):
+    """8. Позначка збоку: текст праворуч від штриховок на висоті полиці (відступ над ними);
+    від тексту - горизонтальна полиця, з неї вертикальні виноски до центру верху кожної штриховки."""
+    total_w = n * w + (n - 1) * gap
+    y_shelf = h + off
+    opts = TextNoteOptions(tn_type.Id)
+    opts.HorizontalAlignment = HorizontalTextAlignment.Left
+    note = TextNote.Create(doc, view.Id, to_view(view, total_w, y_shelf), label_text, opts)
+    doc.Regenerate()
+    # Лівий край тексту - над правим краєм штриховок, середина тексту - на рівні полиці
+    bb = note.get_BoundingBox(view)
+    if bb is not None:
+        a, b = to_flat(view, bb.Min), to_flat(view, bb.Max)
+        dx = total_w - min(a.X, b.X)
+        dy = y_shelf - (a.Y + b.Y) / 2.0
+        if abs(dx) > 1e-6 or abs(dy) > 1e-6:
+            ElementTransformUtils.MoveElement(doc, note.Id, view.RightDirection * dx + view.UpDirection * dy)
+
+    set_bottom_attachment(note, LeaderAtachement.Midpoint)
+    for fr, x0 in regions:
+        cx = x0 + w / 2.0
+        ld = note.AddLeader(TextNoteLeaderTypes.TNLT_STRAIGHT_L)
+        ld.End = to_view(view, cx, h)
+        try:
+            ld.Elbow = to_view(view, cx, y_shelf)    # злам виноски на полиці над штриховкою
+        except Exception:
+            pass
 
 
 def set_description(sym, text):
@@ -582,6 +625,9 @@ class SettingsWindow(object):
                    default_name(ElementTypeGroup.TextNoteType))
         self._fill(self.cb_dim, self.dims, self._last("dim"),
                    default_name(ElementTypeGroup.LinearDimensionType))
+        self.cb_label.ItemsSource = list(LABEL_MODES)      # фіксований порядок, не за алфавітом
+        last_label = self._last("label")
+        self.cb_label.SelectedItem = last_label if last_label in LABEL_MODES else LABEL_NAMES
         try:
             self.sl_offset.Value = float(self._last("offset") or DEFAULT_OFFSET_MM)
         except Exception:
@@ -603,6 +649,7 @@ class SettingsWindow(object):
         self.cb_fill = self._combo(root, u"Тип штриховки")
         self.cb_text = self._combo(root, u"Тип тексту")
         self.cb_dim = self._combo(root, u"Тип розміру")
+        self.cb_label = self._combo(root, u"Текстове позначення над штриховками")
 
         # Підпис слайдера: назва зліва, поточне значення справа
         header = DockPanel()
@@ -696,10 +743,12 @@ class SettingsWindow(object):
             "text": self.texts[picks[1]],
             "dim": self.dims[picks[2]],
             "offset": float(self.sl_offset.Value),
+            "label": self.cb_label.SelectedItem or LABEL_NAMES,
         }
         try:
             config.fill, config.text, config.dim = picks
             config.offset = str(self.result["offset"])
+            config.label = self.result["label"]
             script.save_config()
         except Exception:
             pass
@@ -733,10 +782,19 @@ def run_create(settings):
         try:
             for sym, label, n, nested_name, w, h, rebar in items:
                 vname = unique_name(safe_view_name(LEGEND_PREFIX + mark_or_name(sym)), existing)
+                label_text = lintel_label(n, nested_name)
+                side_label = False
+                if settings["label"] == LABEL_MARK:
+                    mark = type_mark(sym)
+                    if mark:
+                        label_text = mark_number(mark)
+                        side_label = True
+                    else:
+                        log.append(u"{} - Type Mark порожній, над ескізом назва перемички".format(label))
                 st = SubTransaction(doc)
                 st.Start()
                 try:
-                    view = build_legend(template, vname, n, nested_name, w, h, rebar,
+                    view = build_legend(template, vname, n, label_text, side_label, w, h, rebar,
                                         settings["offset"], settings["fill"],
                                         settings["text"], settings["dim"])
                     if not set_description(sym, lintel_label(n, nested_name)):
